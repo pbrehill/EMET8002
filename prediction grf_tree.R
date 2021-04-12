@@ -15,6 +15,17 @@ data_train <- data[train_ind,] %>% select_if(is.numeric)
 data_test <- data[-train_ind,] %>% select_if(is.numeric)
 
 
+get_leaves <- function(cf) {
+    map(1:cf$`_num_trees`, function (i) {
+    cf$`_drawn_samples`[[i]] %>% 
+      map(function (x) map_lgl(cf$`_leaf_samples`[[i]], function (y) x %in% y) %>% which()) %>%
+      setNames(cf$`_drawn_samples`[[i]]) %>%
+      unlist() %>%
+      as.data.frame() %>%
+      rownames_to_column()
+  })
+}
+
 
 evaluate_node <- function (datapoint, fit, node_num = 1) {
   if (class(fit) != "grf_tree") stop("Input is not a causal tree")
@@ -85,6 +96,8 @@ fit_cf_progressively <- function (X, Y, W, num.trees, test_X = NULL) {
       
       # Initialise changes vector
       changes <- c()
+      mean_debiased <- c()
+      mean_excess <- c()
       
     } else {
       # Merge forests
@@ -96,41 +109,75 @@ fit_cf_progressively <- function (X, Y, W, num.trees, test_X = NULL) {
       individual_differences <- predict(old_forest, test_X)$predictions -
         predict(new_forest, test_X)$predictions
       
+      debiased_error_i <- predict(new_forest, test_X)$debiased.error
+      excess_error_i <- predict(new_forest, test_X)$excess.error
+        
       # Square and average
       changes <- c(changes, mean(individual_differences ** 2, na.rm = T))
-    
+      mean_debiased <- c(mean_debiased, mean(debiased_error_i, na.rm = T))
+      mean_excess <- c(mean_excess, mean(excess_error_i, na.rm = T))
+      
     }
     
     # Increment i
     i <- i + 1
     pb$tick()
   }
+  
+  # Calculate error
+  
+  # Get MSE
+  
+  # Big list of the leaves individuals fall into
+  leaf_categories <- map(1:new_forest$`_num_trees`, function (i) {
+    new_forest$`_drawn_samples`[[i]] %>% 
+      map(function (x) map_lgl(new_forest$`_leaf_samples`[[3]], function (y) x %in% y) %>% which()) %>%
+      setNames(new_forest$`_drawn_samples`[[i]]) %>%
+      unlist() %>%
+      as.data.frame() %>%
+      rownames_to_column()
+  })
+  
+  ## Get p
+  map(1:new_forest$`_num_trees`, function (i) {
+    map(unique(.), ~test_out[[i]][test_out[[i]]$. == .x, 'rowname'] %>% 
+          as.numeric() %>%
+          
+        )
+  })
+  
+  
+  ## Get Y*
+  # Ystar = Y * (W-p) / p(1 - p)
+  # 
 
-  return(list(forest = new_forest, changes = changes))
+  return(list(forest = new_forest, changes = changes, debiased = mean_debiased, excess = mean_excess))
 }
+
+# Get Y* for an observation
 
 set.seed(1993)
 
-pcf1 <- fit_cf_progressively(data_train %>% select(-Survived, -Sex1),
-                            data_train$Survived,
-                            data_train$Sex1,
-                            num.trees = 200,
-                            test_X = data_test %>% select(-Survived, -Sex1))
-
-pcf2 <- fit_cf_progressively(data_train %>% select(-Survived, -Sex1),
-                             data_train$Survived,
-                             data_train$Sex1,
-                             num.trees = 5000,
-                             test_X = data_test %>% select(-Survived, -Sex1))
+# pcf1 <- fit_cf_progressively(data_train %>% select(-Survived, -Sex1),
+#                             data_train$Survived,
+#                             data_train$Sex1,
+#                             num.trees = 500,
+#                             test_X = data_test %>% select(-Survived, -Sex1))
+# 
+# pcf2 <- fit_cf_progressively(data_train %>% select(-Survived, -Sex1),
+#                              data_train$Survived,
+#                              data_train$Sex1,
+#                              num.trees = 5000,
+#                              test_X = data_test %>% select(-Survived, -Sex1))
 
 pcf3 <- fit_cf_progressively(data_train %>% select(-Survived, -Sex1),
                              data_train$Survived,
                              data_train$Sex1,
-                             num.trees = 200,
+                             num.trees = 500,
                              test_X = NULL)
 
-pcf4 <- fit_cf_progressively(data_train %>% select(-Survived, -Sex1),
-                             data_train$Survived,
-                             data_train$Sex1,
-                             num.trees = 5000,
-                             test_X = NULL)
+# pcf4 <- fit_cf_progressively(data_train %>% select(-Survived, -Sex1),
+#                              data_train$Survived,
+#                              data_train$Sex1,
+#                              num.trees = 5000,
+#                              test_X = NULL)
