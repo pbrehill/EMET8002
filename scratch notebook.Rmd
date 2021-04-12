@@ -6,6 +6,7 @@ output: html_notebook
 ```{r}
 library(tidyverse)
 library(grf)
+library(rpart)
 data <- read_csv('titanic.csv')
 ```
 ```{r}
@@ -13,11 +14,61 @@ data <- data %>%
     mutate(Sex1 = recode(Sex, 
                       "male" = 0, 
                       "female" = 1))
+
+data_train <- data %>% select_if(is.numeric)
 ```
 
 
 ```{r}
-cf <- grf::causal_forest(data %>% select(-Survived, -Sex, -Sex1, -Name), data$Survived, data$Sex1)
+set.seed(1993)
+
+# cf1 <- grf::causal_forest(data_train %>% select(-Survived, -Sex1), data$Survived, data$Sex1, num.trees = 1)
+# 
+# cf2 <- grf::causal_forest(data_train %>% select(-Survived, -Sex1), data$Survived, data$Sex1, num.trees = 1)
+# 
+# predict(cf1)
+# predict(cf2)
+# 
+# forest_list = list(cf1, cf2)
+
+fit_cf_progressively <- function (X, Y, W, num.trees) {
+  # Initialise i
+  i <- 0
+  
+  while (i >= num.trees) {
+    # Fit a new tree
+    new_tree <- grf::causal_forest(X, Y, W, num.trees = 1)
+    
+    # Merge with existing forest
+    if (i == 1) {
+      # Assign tree to forest, don't merge
+      new_forest <- new_tree
+      
+      # Initialise changes vector
+      changes <- c()
+      
+    } else {
+      # Merge forests
+      old_forest <- new_forest
+      new_forest <- merge_forests(list(old_forest, new_tree))
+    }
+    
+    # Compute change
+    individual_differences <- predict(old_forest)$predictions - predict(new_forest)$predictions
+    
+    # Square and average
+    changes <- c(changes, mean(individual_differences ** 2))
+    
+  }
+  
+  # Increment i
+  i <- i + 1
+  
+  return(list(new_forest, changes))
+}
+
+pcf <- fit_cf_progressively(data_train %>% select(-Survived, -Sex1), data$Survived, data$Sex1, num.trees = 2000)
+
 ```
 
 ```{r}

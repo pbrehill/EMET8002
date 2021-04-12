@@ -1,6 +1,20 @@
 library(tidyverse)
 library(grf)
+library(progress)
 data <- read_csv('titanic.csv')
+
+data <- data %>% 
+  mutate(Sex1 = recode(Sex, 
+                       "male" = 0, 
+                       "female" = 1))
+
+# Split data
+train_ind <- sample(seq_len(nrow(data)), size = floor(0.75 * nrow(data)))
+
+data_train <- data[train_ind,] %>% select_if(is.numeric)
+data_test <- data[-train_ind,] %>% select_if(is.numeric)
+
+
 
 evaluate_node <- function (datapoint, fit, node_num = 1) {
   if (class(fit) != "grf_tree") stop("Input is not a causal tree")
@@ -46,7 +60,77 @@ predict_causal_trees <- function(fit, data1) {
 
 # output_df <- predict_casual_tree(test_tree, data)
 
-trees <- c(1:(cf['_num_trees'] %>% unlist())) %>%
-  map(~get_tree(cf, .x))
 
-outs <- predict_causal_trees(trees, data)
+
+
+
+fit_cf_progressively <- function (X, Y, W, num.trees, test_X = NULL) {
+  # Initialise i
+  i <- 1
+  
+  # Initialise PB
+  pb <- progress_bar$new(
+    format = " calculating [:bar] :percent time elapsed: :elapsedfull",
+    total = num.trees, clear = FALSE, width= 60)
+  
+  
+  while (i <= num.trees) {
+    # Fit a new tree
+    new_tree <- grf::causal_forest(X, Y, W, num.trees = 1)
+    
+    # Merge with existing forest
+    if (i == 1) {
+      # Assign tree to forest, don't merge
+      new_forest <- new_tree
+      
+      # Initialise changes vector
+      changes <- c()
+      
+    } else {
+      # Merge forests
+      old_forest <- new_forest
+      new_forest <- merge_forests(list(old_forest, new_tree))
+    
+    
+      # Compute change
+      individual_differences <- predict(old_forest, test_X)$predictions -
+        predict(new_forest, test_X)$predictions
+      
+      # Square and average
+      changes <- c(changes, mean(individual_differences ** 2, na.rm = T))
+    
+    }
+    
+    # Increment i
+    i <- i + 1
+    pb$tick()
+  }
+
+  return(list(forest = new_forest, changes = changes))
+}
+
+set.seed(1993)
+
+pcf1 <- fit_cf_progressively(data_train %>% select(-Survived, -Sex1),
+                            data_train$Survived,
+                            data_train$Sex1,
+                            num.trees = 200,
+                            test_X = data_test %>% select(-Survived, -Sex1))
+
+pcf2 <- fit_cf_progressively(data_train %>% select(-Survived, -Sex1),
+                             data_train$Survived,
+                             data_train$Sex1,
+                             num.trees = 5000,
+                             test_X = data_test %>% select(-Survived, -Sex1))
+
+pcf3 <- fit_cf_progressively(data_train %>% select(-Survived, -Sex1),
+                             data_train$Survived,
+                             data_train$Sex1,
+                             num.trees = 200,
+                             test_X = NULL)
+
+pcf4 <- fit_cf_progressively(data_train %>% select(-Survived, -Sex1),
+                             data_train$Survived,
+                             data_train$Sex1,
+                             num.trees = 5000,
+                             test_X = NULL)
