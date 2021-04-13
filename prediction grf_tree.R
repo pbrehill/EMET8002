@@ -185,21 +185,14 @@ fit_cf_progressively <- function (X, Y, W, num.trees, test_X = NULL) {
     # Compare with predictions
   }
   
-  # 
-  
-  # map(1:cf$`_num_trees`, function (i) {
-  #   # Get mean treatment in group for tress 1:i
-  #   for (i in 1:length(cf$W.orig)) {
-  #     
-  #   }
-  # }
-  # )
-  
-  ## Get Y*
-  # Ystar = Y * (W-p) / p(1 - p)
-  # 
+  # Get MSE from error_df
+  # TODO: Potentially set na.rm to false so that we only get models for which we have valid Y.stars
+  MSEs <- error_df %>%
+    mutate(sq_err = (tau.hat - Y.star) ** 2) %>%
+    group_by(tree) %>%
+    summarise(MSE = mean(sq_err, na.rm = TRUE))
 
-  return(list(forest = new_forest, changes = changes, predictions = predictions, MSE_values = error_df))
+  return(list(forest = new_forest, changes = changes, predictions = predictions, MSE_values = MSEs))
 }
 
 # Get Y* for an observation
