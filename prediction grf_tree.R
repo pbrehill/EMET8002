@@ -120,16 +120,20 @@ fit_cf_progressively <- function (X, Y, W, num.trees, test_X = NULL) {
       changes <- c()
       mean_debiased <- c()
       mean_excess <- c()
+      predictions <- list()
       
     } else {
       # Merge forests
       old_forest <- new_forest
       new_forest <- merge_forests(list(old_forest, new_tree))
+      
+      # Get forest predictions
+      new_forest_predictions <- predict(new_forest, test_X)$predictions
     
     
       # Compute change
       individual_differences <- predict(old_forest, test_X)$predictions -
-        predict(new_forest, test_X)$predictions
+        new_forest_predictions
       
       debiased_error_i <- predict(new_forest, test_X)$debiased.error
       excess_error_i <- predict(new_forest, test_X)$excess.error
@@ -138,7 +142,7 @@ fit_cf_progressively <- function (X, Y, W, num.trees, test_X = NULL) {
       changes <- c(changes, mean(individual_differences ** 2, na.rm = T))
       mean_debiased <- c(mean_debiased, mean(debiased_error_i, na.rm = T))
       mean_excess <- c(mean_excess, mean(excess_error_i, na.rm = T))
-      
+      predictions[[i]] <- new_forest_predictions
     }
     
     # Increment i
@@ -154,18 +158,28 @@ fit_cf_progressively <- function (X, Y, W, num.trees, test_X = NULL) {
   p <- get_p(new_forest)
 
   # Get MSE for each forest
+  # TODO: Change this to OOB
   ## Initialise new tidy dataframe
-  error_df <- expand_grid(c(1:num.trees), c(1:length(W.orig))) %>%
-    setNames(c('tree', 'case'))
+  error_df <- expand_grid(c(1:num.trees), c(1:length(new_forest$W.orig))) %>%
+    setNames(c('tree', 'case')) %>%
+    mutate(Y.star = NA)
   
-  for (i in 1:nrow(error_df)) {
-    if (error_df$case[i] in p[[i]]$rowname) {
-      pi <- p[[i]]$w_mean[p[[i]]$rowname == error_df$case[i]]
-      W <- W.orig[error_df$case[i]]
-      Y <- Y.orig[error_df$case[i]]
-      new_Y.star <- ((W - p) / (p*(1-p))) * Y
-    } else {
-      new_Y.star <- NA
+  error_df$Y.star <- as.numeric(error_df$Y.star)
+  
+  # TODO: Fix errors here, we seem to be picking up the wrong leaf
+  
+  for (i in 1:length(new_forest$`_num_trees`)) {
+    for (j in 1:length(new_forest$W.orig)) {
+      if (error_df$case[j] %in% p[[i]]$rowname) {
+        pi <- p[[i]]$w_mean[p[[i]]$rowname == error_df$case[j]]
+        W <- new_forest$W.orig[error_df$case[j]]
+        Y <- new_forest$Y.orig[error_df$case[j]]
+        new_Y.star <- ((W - pi) / (pi*(1-pi))) * Y
+      } else {
+        new_Y.star <- NA
+      }
+      error_df[i * j, 'Y.star'] <- new_Y.star
+      error_df[i * j, 'tau.hat'] <- new_forest_predictions[j]
     }
     
     # Compare with predictions
@@ -173,19 +187,19 @@ fit_cf_progressively <- function (X, Y, W, num.trees, test_X = NULL) {
   
   # 
   
-  map(1:cf$`_num_trees`, function (i) {
-    # Get mean treatment in group for tress 1:i
-    for (i in 1:length(cf$W.orig)) {
-      
-    }
-  }
-  )
+  # map(1:cf$`_num_trees`, function (i) {
+  #   # Get mean treatment in group for tress 1:i
+  #   for (i in 1:length(cf$W.orig)) {
+  #     
+  #   }
+  # }
+  # )
   
   ## Get Y*
   # Ystar = Y * (W-p) / p(1 - p)
   # 
 
-  return(list(forest = new_forest, changes = changes))#, debiased = mean_debiased, excess = mean_excess))
+  return(list(forest = new_forest, changes = changes, predictions = predictions, MSE_values = error_df))
 }
 
 # Get Y* for an observation
@@ -207,7 +221,7 @@ set.seed(1993)
 pcf3 <- fit_cf_progressively(data_train %>% select(-Survived, -Sex1),
                              data_train$Survived,
                              data_train$Sex1,
-                             num.trees = 500,
+                             num.trees = 50,
                              test_X = NULL)
 
 # pcf4 <- fit_cf_progressively(data_train %>% select(-Survived, -Sex1),
