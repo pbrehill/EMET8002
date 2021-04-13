@@ -22,10 +22,29 @@ get_leaves <- function(cf) {
       setNames(cf$`_drawn_samples`[[i]]) %>%
       unlist() %>%
       as.data.frame() %>%
-      rownames_to_column()
+      rownames_to_column() %>%
+      setNames(c('rowname', 'group')) %>%
+      mutate(group = as.numeric(group))
   })
 }
 
+
+get_p <-  function (cf) {
+  leaves <- get_leaves(cf)
+  
+  map(1:cf$`_num_trees`, function (i) {
+    leaves[[i]] %>% setNames(c('rowname', 'leaf')) %>% split(.$leaf) %>% 
+      map(pull, rowname) %>%
+      map(as.numeric) %>%
+      map(~mean(cf$W.orig[.x])) %>%
+      unlist() %>%
+      as.data.frame() %>%
+      rownames_to_column() %>%
+      setNames(c('group', 'w_mean')) %>%
+      mutate(group = as.integer(group)) %>%
+      right_join(leaves[[i]], by = 'group')
+  })
+}
 
 evaluate_node <- function (datapoint, fit, node_num = 1) {
   if (class(fit) != "grf_tree") stop("Input is not a causal tree")
@@ -76,6 +95,9 @@ predict_causal_trees <- function(fit, data1) {
 
 
 fit_cf_progressively <- function (X, Y, W, num.trees, test_X = NULL) {
+  # As ci.group.size = 2, we'll increment by 2s
+  num.trees = num.trees/2
+  
   # Initialise i
   i <- 1
   
@@ -128,30 +150,42 @@ fit_cf_progressively <- function (X, Y, W, num.trees, test_X = NULL) {
   
   # Get MSE
   
-  # Big list of the leaves individuals fall into
-  leaf_categories <- map(1:new_forest$`_num_trees`, function (i) {
-    new_forest$`_drawn_samples`[[i]] %>% 
-      map(function (x) map_lgl(new_forest$`_leaf_samples`[[3]], function (y) x %in% y) %>% which()) %>%
-      setNames(new_forest$`_drawn_samples`[[i]]) %>%
-      unlist() %>%
-      as.data.frame() %>%
-      rownames_to_column()
-  })
+  # Get probability treatments
+  p <- get_p(new_forest)
+
+  # Get MSE for each forest
+  ## Initialise new tidy dataframe
+  error_df <- expand_grid(c(1:num.trees), c(1:length(W.orig))) %>%
+    setNames(c('tree', 'case'))
   
-  ## Get p
-  map(1:new_forest$`_num_trees`, function (i) {
-    map(unique(.), ~test_out[[i]][test_out[[i]]$. == .x, 'rowname'] %>% 
-          as.numeric() %>%
-          
-        )
-  })
+  for (i in 1:nrow(error_df)) {
+    if (error_df$case[i] in p[[i]]$rowname) {
+      pi <- p[[i]]$w_mean[p[[i]]$rowname == error_df$case[i]]
+      W <- W.orig[error_df$case[i]]
+      Y <- Y.orig[error_df$case[i]]
+      new_Y.star <- ((W - p) / (p*(1-p))) * Y
+    } else {
+      new_Y.star <- NA
+    }
+    
+    # Compare with predictions
+  }
   
+  # 
+  
+  map(1:cf$`_num_trees`, function (i) {
+    # Get mean treatment in group for tress 1:i
+    for (i in 1:length(cf$W.orig)) {
+      
+    }
+  }
+  )
   
   ## Get Y*
   # Ystar = Y * (W-p) / p(1 - p)
   # 
 
-  return(list(forest = new_forest, changes = changes, debiased = mean_debiased, excess = mean_excess))
+  return(list(forest = new_forest, changes = changes))#, debiased = mean_debiased, excess = mean_excess))
 }
 
 # Get Y* for an observation
