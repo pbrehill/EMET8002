@@ -32,8 +32,9 @@ get_leaves <- function(cf) {
 get_p <-  function (cf) {
   leaves <- get_leaves(cf)
   
-  map(1:cf$`_num_trees`, function (i) {
-    leaves[[i]] %>% setNames(c('rowname', 'leaf')) %>% split(.$leaf) %>% 
+  tree_tables <- map(1:cf$`_num_trees`, function (i) {
+    # Compute in_sample ps
+    tree_table <- leaves[[i]] %>% setNames(c('rowname', 'leaf')) %>% split(.$leaf) %>% 
       map(pull, rowname) %>%
       map(as.numeric) %>%
       map(~mean(cf$W.orig[.x])) %>%
@@ -41,18 +42,44 @@ get_p <-  function (cf) {
       as.data.frame() %>%
       rownames_to_column() %>%
       setNames(c('group', 'w_mean')) %>%
-      mutate(group = as.integer(group)) %>%
-      right_join(leaves[[i]], by = 'group')
+      mutate(group = as.integer(group),
+             in_sample = TRUE) %>%
+      right_join(leaves[[i]], by = 'group') %>%
+      mutate(rowname = as.integer(rowname)) %>%
+      complete(rowname = 1:length(cf$W.orig))
+    
+    # Compute out-of-sample
+    tree <- get_tree(cf, i)
+    missing_from_sample <- is.na(tree_table$group)
+    
+    # Ideally make conditional on missing value but I'm just prototyping for now
+    for (g in 1:nrow(tree_table)) {
+      if (is.na(tree_table[g, 'group'])) {
+        tree_table[g, 'group'] <- evaluate_node(cf$X.orig[tree_table$rowname[g],], tree)['node_num']
+        tree_table[g, 'in_sample'] <- FALSE
+      }
+    }
+      
+    # Fill in missing p
+    tree_table <- tree_table %>%
+      group_by(group) %>%
+      fill(w_mean, .direction = "downup")
+    
   })
+  tree_tables
 }
 
 evaluate_node <- function (datapoint, fit, node_num = 1) {
-  if (class(fit) != "grf_tree") stop("Input is not a causal tree")
+  if (!("grf_tree" %in% class(fit))) stop("Input is not a causal tree")
   
   node <- fit$nodes[[node_num]]
   
   # Check if node is leaf
-  if (node$is_leaf) return(node$leaf_stats)
+  if (node$is_leaf) {
+    node_stats <- c(node_num, node$leaf_stats)
+    names(node_stats) <- c('node_num', 'avg_Y', 'avg_W')
+    return(node_stats)
+  }
   
   test_value <- datapoint[node$split_variable]
   
@@ -95,11 +122,13 @@ predict_causal_trees <- function(fit, data1) {
 
 
 fit_cf_progressively <- function (X, Y, W, num.trees, test_X = NULL) {
-  # As ci.group.size = 2, we'll increment by 2s
-  num.trees = num.trees/2
+  # Remember ci.group = 2
   
   # Initialise i
   i <- 1
+  
+  # Set test_X
+  if (is.null(test_X)) test_X <- X
   
   # Initialise PB
   pb <- progress_bar$new(
@@ -121,6 +150,7 @@ fit_cf_progressively <- function (X, Y, W, num.trees, test_X = NULL) {
       mean_debiased <- c()
       mean_excess <- c()
       predictions <- list()
+      new_forest_predictions <- predict(new_forest, test_X)$predictions
       
     } else {
       # Merge forests
@@ -162,13 +192,15 @@ fit_cf_progressively <- function (X, Y, W, num.trees, test_X = NULL) {
   ## Initialise new tidy dataframe
   error_df <- expand_grid(c(1:num.trees), c(1:length(new_forest$W.orig))) %>%
     setNames(c('tree', 'case')) %>%
-    mutate(Y.star = NA)
+    mutate(Y.star = NA,
+           treatment_probability = NA)
   
   error_df$Y.star <- as.numeric(error_df$Y.star)
+  error_df$treatment_probability <- as.numeric(error_df$treatment_probability)
   
   # TODO: Fix errors here, we seem to be picking up the wrong leaf
-  
-  for (i in 1:length(new_forest$`_num_trees`)) {
+  # TODO: Check why we're having issues with the number of trees here
+  for (i in 1:new_forest$num.trees) {
     for (j in 1:length(new_forest$W.orig)) {
       if (error_df$case[j] %in% p[[i]]$rowname) {
         pi <- p[[i]]$w_mean[p[[i]]$rowname == error_df$case[j]]
@@ -177,9 +209,14 @@ fit_cf_progressively <- function (X, Y, W, num.trees, test_X = NULL) {
         new_Y.star <- ((W - pi) / (pi*(1-pi))) * Y
       } else {
         new_Y.star <- NA
+        pi <- NA
+        W <- NA
+        Y <- NA
       }
       error_df[i * j, 'Y.star'] <- new_Y.star
       error_df[i * j, 'tau.hat'] <- new_forest_predictions[j]
+      error_df[i * j, 'treatment_probability'] <- pi
+      error_df[i * j, 'sq_err'] <- (error_df$tau.hat[j] - error_df$Y.star[j]) ** 2
     }
     
     # Compare with predictions
@@ -188,11 +225,10 @@ fit_cf_progressively <- function (X, Y, W, num.trees, test_X = NULL) {
   # Get MSE from error_df
   # TODO: Potentially set na.rm to false so that we only get models for which we have valid Y.stars
   MSEs <- error_df %>%
-    mutate(sq_err = (tau.hat - Y.star) ** 2) %>%
     group_by(tree) %>%
     summarise(MSE = mean(sq_err, na.rm = TRUE))
 
-  return(list(forest = new_forest, changes = changes, predictions = predictions, MSE_values = MSEs))
+  return(list(forest = new_forest, changes = changes, predictions = predictions, MSE_values = MSEs, error_df = error_df, p = p))
 }
 
 # Get Y* for an observation
@@ -214,7 +250,7 @@ set.seed(1993)
 pcf3 <- fit_cf_progressively(data_train %>% select(-Survived, -Sex1),
                              data_train$Survived,
                              data_train$Sex1,
-                             num.trees = 50,
+                             num.trees = 10,
                              test_X = NULL)
 
 # pcf4 <- fit_cf_progressively(data_train %>% select(-Survived, -Sex1),
