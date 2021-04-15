@@ -190,7 +190,7 @@ fit_cf_progressively <- function (X, Y, W, num.trees, test_X = NULL) {
   # Get MSE for each forest
   # TODO: Change this to OOB
   ## Initialise new tidy dataframe
-  error_df <- expand_grid(c(1:num.trees), c(1:length(new_forest$W.orig))) %>%
+  error_df <- expand_grid(c(1:new_forest$`_num_trees`), c(1:length(new_forest$W.orig))) %>%
     setNames(c('tree', 'case')) %>%
     mutate(Y.star = NA,
            treatment_probability = NA)
@@ -200,7 +200,7 @@ fit_cf_progressively <- function (X, Y, W, num.trees, test_X = NULL) {
   
   # TODO: Fix errors here, we seem to be picking up the wrong leaf
   # TODO: Check why we're having issues with the number of trees here
-  for (i in 1:new_forest$num.trees) {
+  for (i in 1:new_forest$`_num_trees`) {
     for (j in 1:length(new_forest$W.orig)) {
       if (error_df$case[j] %in% p[[i]]$rowname) {
         pi <- p[[i]]$w_mean[p[[i]]$rowname == error_df$case[j]]
@@ -213,10 +213,11 @@ fit_cf_progressively <- function (X, Y, W, num.trees, test_X = NULL) {
         W <- NA
         Y <- NA
       }
-      error_df[i * j, 'Y.star'] <- new_Y.star
-      error_df[i * j, 'tau.hat'] <- new_forest_predictions[j]
-      error_df[i * j, 'treatment_probability'] <- pi
-      error_df[i * j, 'sq_err'] <- (error_df$tau.hat[j] - error_df$Y.star[j]) ** 2
+      index <- (i-1) * length(new_forest$W.orig) + j
+      error_df[index, 'Y.star'] <- new_Y.star
+      error_df[index, 'tau.hat'] <- new_forest_predictions[j]
+      error_df[index, 'treatment_probability'] <- pi
+      error_df[index, 'sq_err'] <- (error_df$tau.hat[index] - error_df$Y.star[index]) ** 2
     }
     
     # Compare with predictions
@@ -250,7 +251,7 @@ set.seed(1993)
 pcf3 <- fit_cf_progressively(data_train %>% select(-Survived, -Sex1),
                              data_train$Survived,
                              data_train$Sex1,
-                             num.trees = 10,
+                             num.trees = 50,
                              test_X = NULL)
 
 # pcf4 <- fit_cf_progressively(data_train %>% select(-Survived, -Sex1),
