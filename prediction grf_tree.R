@@ -1,7 +1,10 @@
 library(tidyverse)
 library(grf)
 library(progress)
+library(microbenchmark)
 data <- read_csv('titanic.csv')
+
+Rcpp::sourceCpp('forest_cpp.cpp')
 
 data <- data %>% 
   mutate(Sex1 = recode(Sex, 
@@ -69,7 +72,7 @@ get_p <-  function (cf) {
   tree_tables
 }
 
-evaluate_node <- function (datapoint, fit, node_num = 1) {
+evaluate_node_R <- function (datapoint, fit, node_num = 1) {
   if (!("grf_tree" %in% class(fit))) stop("Input is not a causal tree")
   
   node <- fit$nodes[[node_num]]
@@ -248,14 +251,33 @@ set.seed(1993)
 #                              num.trees = 5000,
 #                              test_X = data_test %>% select(-Survived, -Sex1))
 
-pcf3 <- fit_cf_progressively(data_train %>% select(-Survived, -Sex1),
+benchmark <- microbenchmark(fit_cf_progressively(data_train %>% select(-Survived, -Sex1),
                              data_train$Survived,
                              data_train$Sex1,
-                             num.trees = 50,
-                             test_X = NULL)
+                             num.trees = 40,
+                             test_X = NULL), times = 5L)
+# pcf5 <- fit_cf_progressively(data_train %>% select(-Survived, -Sex1),
+#                              data_train$Survived,
+#                              data_train$Sex1,
+#                              num.trees = 7,
+#                              test_X = NULL)
 
 # pcf4 <- fit_cf_progressively(data_train %>% select(-Survived, -Sex1),
 #                              data_train$Survived,
 #                              data_train$Sex1,
 #                              num.trees = 5000,
 #                              test_X = NULL)
+
+
+# benchmark_Cpp <- microbenchmark(
+#   evaluate_nodes(pcf3$forest$X.orig %>% as.list(), pcf3$forest %>% get_tree(5)),
+#   times = 10L
+# )
+# 
+# benchmark_R <- microbenchmark(
+#   for (i in nrow(data_train)) {
+#     evaluate_node_R(pcf3$forest$X.orig[i,], pcf3$forest %>% get_tree(5))
+#   },
+#   times = 10L
+# )
+
