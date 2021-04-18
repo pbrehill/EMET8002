@@ -32,7 +32,7 @@ get_leaves <- function(cf) {
 }
 
 
-get_p <-  function (cf) {
+get_p <-  function (cf, cpp = TRUE) {
   leaves <- get_leaves(cf)
   
   tree_tables <- map(1:cf$`_num_trees`, function (i) {
@@ -251,11 +251,11 @@ set.seed(1993)
 #                              num.trees = 5000,
 #                              test_X = data_test %>% select(-Survived, -Sex1))
 
-benchmark <- microbenchmark(fit_cf_progressively(data_train %>% select(-Survived, -Sex1),
-                             data_train$Survived,
-                             data_train$Sex1,
-                             num.trees = 40,
-                             test_X = NULL), times = 5L)
+# benchmark <- microbenchmark(fit_cf_progressively(data_train %>% select(-Survived, -Sex1),
+#                              data_train$Survived,
+#                              data_train$Sex1,
+#                              num.trees = 40,
+#                              test_X = NULL), times = 5L)
 # pcf5 <- fit_cf_progressively(data_train %>% select(-Survived, -Sex1),
 #                              data_train$Survived,
 #                              data_train$Sex1,
