@@ -18,57 +18,15 @@ data_train <- data[train_ind,] %>% select_if(is.numeric)
 data_test <- data[-train_ind,] %>% select_if(is.numeric)
 
 
-get_leaves <- function(cf) {
-    map(1:cf$`_num_trees`, function (i) {
-    cf$`_drawn_samples`[[i]] %>% 
-      map(function (x) map_lgl(cf$`_leaf_samples`[[i]], function (y) x %in% y) %>% which()) %>%
-      setNames(cf$`_drawn_samples`[[i]]) %>%
-      unlist() %>%
-      as.data.frame() %>%
-      rownames_to_column() %>%
-      setNames(c('rowname', 'group')) %>%
-      mutate(group = as.numeric(group))
-  })
-}
-
-
-get_p <-  function (cf, cpp = TRUE) {
-  leaves <- get_leaves(cf)
+get_p <-  function (cf, data = NULL) {
+  # TODO: Add out of sample
+  listed_forest <- map(1:cf$`_num_trees`, ~get_tree(cf, .x))
+  if (is.null(data)) data <- cf$X.orig
   
-  tree_tables <- map(1:cf$`_num_trees`, function (i) {
-    # Compute in_sample ps
-    tree_table <- leaves[[i]] %>% setNames(c('rowname', 'leaf')) %>% split(.$leaf) %>% 
-      map(pull, rowname) %>%
-      map(as.numeric) %>%
-      map(~mean(cf$W.orig[.x])) %>%
-      unlist() %>%
-      as.data.frame() %>%
-      rownames_to_column() %>%
-      setNames(c('group', 'w_mean')) %>%
-      mutate(group = as.integer(group),
-             in_sample = TRUE) %>%
-      right_join(leaves[[i]], by = 'group') %>%
-      mutate(rowname = as.integer(rowname)) %>%
-      complete(rowname = 1:length(cf$W.orig))
-    
-    # Compute out-of-sample
-    tree <- get_tree(cf, i)
-    missing_from_sample <- is.na(tree_table$group)
-    
-    # Ideally make conditional on missing value but I'm just prototyping for now
-    for (g in 1:nrow(tree_table)) {
-      if (is.na(tree_table[g, 'group'])) {
-        tree_table[g, 'group'] <- evaluate_node(cf$X.orig[tree_table$rowname[g],], tree)['node_num']
-        tree_table[g, 'in_sample'] <- FALSE
-      }
-    }
-      
-    # Fill in missing p
-    tree_table <- tree_table %>%
-      group_by(group) %>%
-      fill(w_mean, .direction = "downup")
-    
-  })
+  tree_tables <- evaluate_forest(data %>% as.list(),
+                                 listed_forest) %>%
+    map(~setNames(.x, c('group', 'avg_Y', 'avg_W')))
+  
   tree_tables
 }
 
@@ -239,11 +197,11 @@ fit_cf_progressively <- function (X, Y, W, num.trees, test_X = NULL) {
 
 set.seed(1993)
 
-# pcf1 <- fit_cf_progressively(data_train %>% select(-Survived, -Sex1),
-#                             data_train$Survived,
-#                             data_train$Sex1,
-#                             num.trees = 500,
-#                             test_X = data_test %>% select(-Survived, -Sex1))
+pcf1 <- fit_cf_progressively(data_train %>% select(-Survived, -Sex1),
+                            data_train$Survived,
+                            data_train$Sex1,
+                            num.trees = 500,
+                            test_X = data_test %>% select(-Survived, -Sex1))
 # 
 # pcf2 <- fit_cf_progressively(data_train %>% select(-Survived, -Sex1),
 #                              data_train$Survived,
@@ -281,3 +239,4 @@ set.seed(1993)
 #   times = 10L
 # )
 
+test_p_out <- get_p(cf_test)

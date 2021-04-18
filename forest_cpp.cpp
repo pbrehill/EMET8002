@@ -11,6 +11,7 @@ using namespace std;
 //   http://adv-r.had.co.nz/Rcpp.html
 //   http://gallery.rcpp.org/
 //
+// Testing git
 
 // [[Rcpp::export]]
 NumericVector evaluate_node(List datapoint, List fit, int node_num = 1) {
@@ -105,7 +106,7 @@ DataFrame evaluate_nodes(List datapoints, List fit) {
 List evaluate_forest(List datapoints, List forest) {
   int forest_length = forest.length() ;
   List results(forest_length) ;
-  List current_tree(26) ;
+  List current_tree(5) ;
   
   for (int i = 0; i < forest_length; i++) {
     current_tree = forest[i] ;
