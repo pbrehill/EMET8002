@@ -64,6 +64,41 @@ NumericVector evaluate_node(List datapoint, List fit, int node_num = 1) {
   }
 }
 
+
+// [[Rcpp::export]]
+List get_rules(List decision_tree, node_num = 1) {
+  
+  // Taking care of initial assignment
+  List nodes = decision_tree["nodes"]
+  List node = nodes[node_num] 
+  int node_num -= 1 ;
+  
+  // Initialise nodes covered
+  if (node_num == 0) {
+    LogicalVector nodes_covered(nodes.length()) ;
+  } else {
+    nodes_covered[node_num] = true ;
+  }
+  
+  int left_child = node["left_child"] ;
+  int right_child = node["right_child"] ;
+  
+  // Checks next action
+  if (node["is_leaf"]){ // If node is a leave, we return cs
+    return 1 ;
+  } else if (!nodes_covered[left_child]){
+      return get_rules(decision_tree) ;
+  }
+    else if (!nodes_covered[left_child]) {
+      return get_rules(decision_tree) ;
+  }
+    
+  if sum(nodes_covered == nodes.length()) {
+    return conjunction;
+  }
+}
+
+
 // [[Rcpp::export]]
 DataFrame evaluate_nodes(List datapoints, List fit) {
   int ncols = datapoints.length() ;
