@@ -66,37 +66,82 @@ NumericVector evaluate_node(List datapoint, List fit, int node_num = 1) {
 
 
 // [[Rcpp::export]]
-List get_rules(List decision_tree, node_num = 1) {
+IntegerVector find_next_path(List decision_tree, int node_num = 1,
+                   LogicalVector nodes_covered = nodes_covered, List nodes = nodes) {
   
-  // Taking care of initial assignment
-  List nodes = decision_tree["nodes"]
-  List node = nodes[node_num] 
+  List node = nodes[node_num] ;
+  int left_child = node["left_child"] ;
+  int right_child = node["right_child"] ;
+  int parent = node["parent"]
+  
+  if (!nodes_covered[left_child]) {
+    return IntegerVector::create(_["child"] = left_child, _["parent"] = parent) ;
+  } else if (!nodes_covered[right_child]) {
+    return IntegerVector::create(_["child"] = right_child, _["parent"] = parent) ;
+  } else if (parent_node != -1) {
+    return find_next_path(decision_tree, parent)
+  } else {
+    return IntegerVector x()
+  }
+}
+
+
+// [[Rcpp::export]]
+List rules_iteration(List decision_tree, int node_num = 1, int parent_node = -1, 
+                     IntegerVector leaves = leaves, LogicalVector nodes_covered = nodes_covered, 
+                     List nodes = nodes) {
+  // Convert node_num to 0-indexed number
   int node_num -= 1 ;
   
-  // Initialise nodes covered
-  if (node_num == 0) {
-    LogicalVector nodes_covered(nodes.length()) ;
-  } else {
-    nodes_covered[node_num] = true ;
-  }
+  // Get node
+  List node = nodes[node_num] ;
+  
+  // Tick off node and initialise children
+  nodes_covered[node_num] = true ;
   
   int left_child = node["left_child"] ;
   int right_child = node["right_child"] ;
   
+  // Set child node
+  node.push_back(parent_node, "parent" ) ;
+    
   // Checks next action
   if (node["is_leaf"]){ // If node is a leave, we return cs
-    return 1 ;
-  } else if (!nodes_covered[left_child]){
-      return get_rules(decision_tree) ;
-  }
-    else if (!nodes_covered[left_child]) {
-      return get_rules(decision_tree) ;
-  }
+    leaves.push_back(node_num) ; // Update leaves
     
-  if sum(nodes_covered == nodes.length()) {
-    return conjunction;
+  } else if (!nodes_covered[left_child]){
+    return rules_iteration(decision_tree, left_child, node_num) ; // Go left
+  } else if (!nodes_covered[left_child]) {
+    return rules_iteration(decision_tree, right_child, node_num) ; // Go right
+  } else if (sum(nodes_covered) == nodes.length()) {
+    return leaves ;
+  } else {
+    int next_node = find_next_path(decision_tree = decision_tree, node_num = 1) ;
+    if (next_node == -1) {
+      return leaves
+    } else {
+      return rules_iteration(decision_tree, right_child, -1)
+    }
   }
 }
+
+
+// [[Rcpp::export]]
+List get_rules(List decision_tree, int node_num = 1, int parent_node = -1) {
+  
+  // Taking care of initial assignment
+  List nodes = decision_tree["nodes"]
+  IntegerVector leaves(0)
+  LogicalVector nodes_covered(nodes.length())
+  
+  leaves = rules_iteration(decision_tree, node_num, parent_node)
+  
+  // Handle rule compilation here?
+  return leaves
+
+}
+
+
 
 
 // [[Rcpp::export]]
