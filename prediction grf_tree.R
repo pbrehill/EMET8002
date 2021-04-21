@@ -75,6 +75,77 @@ evaluate_node_R <- function (datapoint, fit, node_num = 1) {
 }
 
 
+
+find_next_path <- function(decision_tree, node_num, nodes = nodes, nodes_covered = nodes_covered) {
+
+  node = nodes[[node_num]] ;
+  left_child = node[["left_child"]] ;
+  right_child = node[["right_child"]] ;
+  parent = node[["parent"]] ;
+
+  if (!nodes_covered[left_child]) {
+    return(c(child = left_child, parent = parent)) ;
+  } else if (!nodes_covered[right_child]) {
+    return(c(child = right_child, parent = parent)) ;
+  } else if (parent != -1) {
+    return (find_next_path(decision_tree, node_num, parent, nodes_covered, nodes)) ;
+  } else {
+    # TODO: Change this
+    return (find_next_path(decision_tree, node_num, parent, nodes_covered, nodes)) ;
+  }
+}
+
+
+rules_iteration <- function(decision_tree, node_num, parent_node, leaves = leaves, nodes_covered. = nodes_covered) {
+
+  nodes <- decision_tree$nodes
+  
+  # Get node
+  node = nodes[[node_num]] ;
+
+  # Tick off node and initialise children
+  nodes_covered[node_num] <- TRUE ;
+
+  left_child = node[["left_child"]] ;
+  right_child = node[["right_child"]] ;
+
+  # Set child node
+  node[["parent"]] = parent_node ;
+
+  # Checks next action
+  if (node[["is_leaf"]]){ # If node is a leaf, we return cs
+    leaves <- c(leaves, node_num) ; # Update leaves
+
+  } else if (!nodes_covered[left_child]){
+    return (rules_iteration(decision_tree, left_child, node_num)) ; # Go left
+  } else if (!nodes_covered[left_child]) {
+    return (rules_iteration(decision_tree, right_child, node_num)) ; # Go right
+  } else if (sum(nodes_covered) == length(nodes)) {
+    return (leaves) ;
+  } else {
+    next_node <- find_next_path(decision_tree, node_num, parent_node, nodes_covered., nodes) ;
+    if (next_node == -1) {
+      return (leaves) ;
+    } else {
+      return (rules_iteration(decision_tree, right_child, -1)) ;
+    }
+  }
+}
+
+
+get_rules <- function(decision_tree, node_num = 1, parent_node = -1) {
+
+  # Taking care of initial assignment
+  nodes = decision_tree[["nodes"]]
+  leaves = vector(mode = "integer", 0)
+  nodes_covered = vector("logical", length(nodes))
+
+  leaves = rules_iteration(decision_tree, node_num, parent_node, leaves = leaves, nodes_covered = nodes_covered)
+  # Handle rule compilation here?
+  return (leaves)
+}
+
+
 predict_casual_tree <- function (fit, data1) {
   data1 %>%
     select(fit$columns) %>%
@@ -285,14 +356,14 @@ fit_cf_progressively <- function (X, Y, W, tau, num.trees, test_X = NULL) {
 
 # Get Y* for an observation
 
-set.seed(1993)
-
-pcf1 <- fit_cf_progressively(data_train %>% select(-Survived, -Sex1),
-                            data_train$Survived,
-                            data_train$Sex1,
-                            tau = tau_noise,
-                            num.trees = 1000,
-                            test_X = data_test %>% select(-Survived, -Sex1))
+# set.seed(1993)
+# 
+# pcf1 <- fit_cf_progressively(data_train %>% select(-Survived, -Sex1),
+#                             data_train$Survived,
+#                             data_train$Sex1,
+#                             tau = tau_noise,
+#                             num.trees = 1000,
+#                             test_X = data_test %>% select(-Survived, -Sex1))
 # 
 # pcf2 <- fit_cf_progressively(data_train %>% select(-Survived, -Sex1),
 #                              data_train$Survived,
@@ -330,6 +401,21 @@ pcf1 <- fit_cf_progressively(data_train %>% select(-Survived, -Sex1),
 #   times = 10L
 # )
 
-pcf1$mse %>% qplot(y = ., x = 1:length(.))
+# pcf1$mse %>% qplot(y = ., x = 1:length(.))
 
 # test_p_out <- get_p(cf_test)
+
+## Create a conjunction set
+
+# conjunction_set <- function (cf) {
+#   cs <- list()
+#   for (i in 1:cf$`_num_trees`) {
+#     if (i == 0) {
+#       cs[[0]] <- 
+#     }
+#   }
+# }
+
+
+get_rules(test_tree)
+
