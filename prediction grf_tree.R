@@ -115,7 +115,7 @@ rules_iteration <- function(decision_tree, node_num, parent_node, leaves = leave
   node[["parent"]] = parent_node ;
 
   # Checks next action
-  if (node[["is_leaf"]]){ # If node is a leaf, we return cs
+  if (node[["is_leaf"]]) { # If node is a leaf, we return cs
     leaves <- c(leaves, node_num) ; # Update leaves
 
   } else if (!nodes_covered[left_child]){
@@ -135,17 +135,80 @@ rules_iteration <- function(decision_tree, node_num, parent_node, leaves = leave
 }
 
 
+equals_number <- function (x, target) {
+  if (is.null(x)) {
+    return (FALSE)
+  } else if (x == target) {
+    return (TRUE)
+  } else {
+    return (FALSE)
+  }
+}
+
+
+
 get_rules <- function(decision_tree, node_num = 1, parent_node = -1) {
 
   # Taking care of initial assignment
   nodes = decision_tree[["nodes"]]
-  leaves = vector(mode = "integer", 0)
+  leaves = integer(length = 0L)
   nodes_covered = logical(length(nodes))
 
   leaves = rules_iteration(decision_tree, node_num, parent_node, leaves = leaves, nodes_covered = nodes_covered)
   # Handle rule compilation here?
   return (leaves)
 }
+
+# Get rules without recursion
+loop_rules <- function(decision_tree, node_num = 1, parent_node = -1) {
+  
+  # Taking care of initial assignment
+  nodes = decision_tree[["nodes"]]
+  leaves = integer(length = 0L)
+  nodes_covered = logical(length(nodes))
+  last_node <- -1
+  node_num <- 1
+  i <- 0
+  
+  
+  # Get leaves and parents
+  while (!all(nodes_covered)) {
+    if (i != 0) node_num <- next_node
+    
+    # Set current node to covered an select new node
+    nodes_covered[node_num] <- TRUE
+    node = nodes[[node_num]]
+    
+    # Set child node
+    decision_tree$nodes[[node_num]][["parent"]] <- last_node
+    
+    # Set last node to current
+    last_node <- node_num
+    
+    # Checks next action
+    if (node[["is_leaf"]]) { # If node is a leaf, we return cs
+      leaves <- c(leaves, node_num) # Update leaves
+      next_node <- which(!nodes_covered) %>% min()
+      last_node_left <- nodes %>% map(~.x$left_child) %>% map(~equals_number(.x, next_node)) %>% unlist() %>% which()
+      last_node_right <- nodes %>% map(~.x$right_child) %>% map(~equals_number(.x, next_node)) %>% unlist() %>% which()
+      last_node <- c(last_node_left, last_node_right)
+    } else if (!nodes_covered[node$left_child]){
+      next_node <- node$left_child; # Go left
+    } else if (!nodes_covered[node$left_child]) {
+      next_node <- node$right_child ; # Go right
+    } else if (!all(nodes_covered)) {
+      # TODO: Make parent node assignment work here
+      next_node <- which(!nodes_covered) %>% min()
+      last_node_left <- nodes %>% map(~.x$left_child) %>% map(~equals_number(.x, next_node)) %>% unlist() %>% which()
+      last_node_right <- nodes %>% map(~.x$right_child) %>% map(~equals_number(.x, next_node)) %>% unlist() %>% which()
+      last_node <- c(last_node_left, last_node_right)
+    }
+    
+    i <- i + 1
+  }
+  decision_tree[["leaves"]] <- leaves
+  return(decision_tree)
+  }
 
 
 predict_casual_tree <- function (fit, data1) {
@@ -281,6 +344,30 @@ fit_cf_progressively_notau <- function (X, Y, W, num.trees, test_X = NULL) {
     summarise(MSE = mean(sq_err, na.rm = TRUE))
 
   return(list(forest = new_forest, changes = changes, predictions = predictions, MSE_values = MSEs, error_df = error_df, p = p))
+}
+
+
+get_rules_from_leaves <- function(decision_tree) {
+  map(decision_tree$leaves, function(x) {
+    node_num <- decision_tree$nodes[[x]]$parent
+    split_vars <- c()
+    split_condition <- c()
+    while (node_num != -1) {
+      node <- decision_tree$nodes[[node_num]]
+      split_vars <- c(split_vars, node$split_variable)
+      split_condition <- c(split_condition, node$split_value)
+      node_num <- node$parent
+    }
+    
+    # TODO: Add support for exporting outcome for leaves
+    data.frame(variables = split_vars, conditions = split_condition)
+  }
+  )
+}
+
+
+combine_rules <- function (rules1, rules2) {
+  
 }
 
 
@@ -427,5 +514,28 @@ test_tree <- get_tree(test_forest, 1)
 # }
 
 
-get_rules(test_tree)
+# get_rules(test_tree)
 
+
+# output_test <- loop_rules(test_tree)
+
+trees <- map(1:test_forest$`_num_trees`, ~get_tree(test_forest, .x))
+
+trees_w_parents <- list()
+rules_list <- list()
+
+pb <- progress_bar$new(
+  format = " calculating [:bar] :percent time elapsed: :elapsedfull",
+  total = test_forest$`_num_trees`, clear = FALSE, width= 60)
+
+for (i in 1:test_forest$`_num_trees`) {
+  trees_w_parents[[i]] <- loop_rules(trees[[i]])
+  rules_list[[i]] <- get_rules_from_leaves(trees_w_parents[[i]])
+  pb$tick()
+}
+
+
+rules_df <- rules_list %>% map(~bind_rows(.x, .id = "leaf")) %>% bind_rows(.id = "tree")
+# get_rules_from_leaves(trees_w_parents[[2]])
+
+# loop_rules(test_tree)
