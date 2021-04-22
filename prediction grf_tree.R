@@ -3,7 +3,7 @@ library(grf)
 library(progress)
 library(microbenchmark)
 data <- read_csv('titanic.csv')
-load("~/R-projects/EMET8002/broockman_kalla_replication_data.RData")
+# load("~/R-projects/EMET8002/broockman_kalla_replication_data.RData")
 
 # trans <- x %>%
 #   select(treatment,
@@ -96,7 +96,7 @@ find_next_path <- function(decision_tree, node_num, nodes = nodes, nodes_covered
 }
 
 
-rules_iteration <- function(decision_tree, node_num, parent_node, leaves = leaves, nodes_covered. = nodes_covered) {
+rules_iteration <- function(decision_tree, node_num, parent_node, leaves = leaves, nodes_covered = nodes_covered) {
 
   nodes <- decision_tree$nodes
   
@@ -104,7 +104,9 @@ rules_iteration <- function(decision_tree, node_num, parent_node, leaves = leave
   node = nodes[[node_num]] ;
 
   # Tick off node and initialise children
-  nodes_covered[node_num] <- TRUE ;
+  local_nodes <- nodes_covered
+  local_nodes[node_num] <- TRUE
+  nodes_covered <<- local_nodes;
 
   left_child = node[["left_child"]] ;
   right_child = node[["right_child"]] ;
@@ -138,7 +140,7 @@ get_rules <- function(decision_tree, node_num = 1, parent_node = -1) {
   # Taking care of initial assignment
   nodes = decision_tree[["nodes"]]
   leaves = vector(mode = "integer", 0)
-  nodes_covered = vector("logical", length(nodes))
+  nodes_covered = logical(length(nodes))
 
   leaves = rules_iteration(decision_tree, node_num, parent_node, leaves = leaves, nodes_covered = nodes_covered)
   # Handle rule compilation here?
@@ -352,6 +354,14 @@ fit_cf_progressively <- function (X, Y, W, tau, num.trees, test_X = NULL) {
               errors.df = errors.df,
               mse = mse))
 }
+
+
+test_forest <- causal_forest(data_train %>% select(-Survived, -Sex1),
+                                           data_train$Survived,
+                                           data_train$Sex1,
+                                           num.trees = 1000)
+
+test_tree <- get_tree(test_forest, 1)
 
 
 # Get Y* for an observation

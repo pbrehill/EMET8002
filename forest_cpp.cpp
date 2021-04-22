@@ -121,13 +121,6 @@ List evaluate_forest(List datapoints, List forest) {
 }
 
 
-/*** R
-# library(tidyverse)
-# library(grf)
-# print(evaluate_node(pcf3$forest$X.orig[30,] %>% as.list(), pcf3$forest %>% get_tree(3), 1))
-*/
-
-
 // Rcpp::List get_leaves(Rcpp::List cf) {
 //   int num_trees = cf["_num_trees"] ;
 //   
