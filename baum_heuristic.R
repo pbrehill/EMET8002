@@ -16,10 +16,25 @@ baum_step_1 <- function(forest) {
 baum_step_2 <- function(forest, data) {
   selected_trees <- baum_step_1(forest)
   which_trees <- selected_trees %>% which()
+  predictions <- predict(forest)$predictions
   
-  dfs <- map(1:length(which_trees), ~predict_casual_tree(get_tree(test_forest, which_trees[.x]), data))
-  expanded_dfs <- map(dfs, ~bind_cols(.x, data))
-  expanded_dfs
+  trees <- map(1:forest$`_num_trees`, ~get_tree(forest, .x))
   
-  # TEs_by_tree <- 
+  selected_tree_samples <- map(trees, function (x) {
+      drawn <- x$drawn_samples
+      1:nrow(data) %in% drawn
+    }) %>%
+    bind_cols()
+  
+  prediction_variance <- selected_tree_samples %>%
+    map_dbl(~var(predictions[.x]))
+  
+  best_tree <- prediction_variance %>% order(decreasing = TRUE)
+  
+  return(best_tree[1])
+}
+
+baum_step_3 <- function(forest, data) {
+  critical_tree <- get_tree(forest, baum_step_2(forest, data))
+  plot(critical_tree)
 }
