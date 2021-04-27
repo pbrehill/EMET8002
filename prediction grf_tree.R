@@ -215,7 +215,8 @@ predict_casual_tree <- function (fit, data1) {
   data1 %>%
     select(fit$columns) %>%
     apply(1, evaluate_node, fit = fit) %>%
-    t()
+    t() %>%
+    setNames(c('node_num', 'avg_Y', 'avg_W'))
 }
 
 predict_causal_trees <- function(fit, data1) {
