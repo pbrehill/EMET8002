@@ -2,7 +2,7 @@
 baum_step_1 <- function(forest) {
   # TODO: Incorporate equal highest imporantance
   # TODO: Check tree importance measure (first split)
-  most_important_selector <- variable_importance(test_forest) == variable_importance(test_forest) %>% max()
+  most_important_selector <- variable_importance(forest) == variable_importance(forest) %>% max()
   most_important_variable <- which(most_important_selector)
   
   # Get all the trees in a list

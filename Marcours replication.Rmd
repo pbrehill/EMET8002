@@ -1,0 +1,68 @@
+---
+title: "Replication early analysis"
+output: html_notebook
+---
+
+First we import data
+
+```{r}
+library(tidyverse)
+library(grf)
+library(haven)
+source('best_tree.R')
+source('baum_heuristic.R')
+
+data <- read_dta('macoursetal_main.dta')
+```
+
+Variables have already been transformed which is excellent.
+
+```{r}
+
+
+X <- data[c('male', 's1age_head_05', 's1hhsize_05', 's1hhsz_undr5_05', 's1hhsz_5_14_05', 's1hhsz_15_24_05', 's1hhsz_25_64_05', 's1hhsz_65plus_05', 's1male_head_05', 'ed_mom_inter', 'ed_mom_miss', 'bweight_miss', 'bweight_inter', 'tvip_05_miss', 'tvip_05_inter', 'height_05_miss', 'height_05_inter', 'weight_05_miss', 'weight_05_inter', 'com_haz_05', 'com_waz_05', 'com_tvip_05', 'com_control_05', 'com_vit_05', 'com_deworm_05', 'com_notvip')]
+
+Y <- data %>%
+  select(contains('z_') & contains('_06') & -contains('_06m'))
+
+W <- data$T
+
+selectorXW <- complete.cases(X) & complete.cases(W)
+
+X <- X[selectorXW,]
+Y <- Y[selectorXW,]
+W <- W[selectorXW]
+```
+
+We're going to remove incomplete cases for X (only 46 of them) and W (also 46 cases). However for Y where only 2% is complete, we will just omit cases where we don't have the outcome. First let's check where the missing data is though.
+
+```{r}
+map_dbl(Y, ~sum(is.na(.x)))
+```
+
+There is missing data in a lot of variables.
+
+
+```{r}
+forest_outputs <- Y %>%
+  map(function (y) {
+    selector <- !is.na(y)
+    .y <- y[selector]
+    .X <- X[selector,]
+    .W <- W[selector]
+    
+    causal_forest(X = .X,
+                 Y = .y,
+                 W = .W
+                     )}
+      )
+```
+
+Next we'll use the Baum heuristic to extract a representative tree.
+
+```{r}
+baum_trees <- map(forest_outputs, ~baum_step_3(.x, data))
+wager_trees <- map(forest_outputs, find_best_tree)
+```
+
+
