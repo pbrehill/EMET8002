@@ -2,8 +2,10 @@ library(tidyverse)
 library(grf)
 library(progress)
 library(microbenchmark)
-data <- read_csv('titanic.csv')
+# data <- read_csv('titanic.csv')
 # load("~/R-projects/EMET8002/broockman_kalla_replication_data.RData")
+
+data <- read_dta('macoursetal_main.dta')
 
 # trans <- x %>%
 #   select(treatment,
@@ -441,6 +443,100 @@ fit_cf_progressively <- function (X, Y, W, tau, num.trees, test_X = NULL) {
               predictions = predictions,
               errors.df = errors.df,
               mse = mse))
+}
+
+
+
+change_tree_var_names <- function(tree, data) {
+  labels <- data[tree$columns] %>% map_chr(~attributes(.x)$label)
+  tree$column_labels <- labels[tree$columns] %>% unname
+  
+  return(tree)
+}
+
+
+get_lineage <- function(tree) {
+  lineages_list <- list()
+  which_child_list <- list()
+  for (i in 1:length(tree$leaves)) {
+    leaf_lineage <- tree$leaves[i]
+    current_node <- tree$nodes[[leaf_lineage]]
+    while (current_node$parent != -1) {
+      leaf_lineage <- c(leaf_lineage, current_node$parent)
+      current_node <- tree$nodes[[current_node$parent]]
+    }
+    lineages_list[[i]] <- leaf_lineage
+  }
+  
+  return(lineages_list)
+}
+
+which_child <- function(tree, lineage_list = get_lineage(tree)) {
+  child_list <- list()
+  for (i in 1:length(lineage_list)) {
+    child_vector <- logical()
+    current_vector <- lineage_list[[i]]
+    for (j in 1:(length(current_vector) - 1)) {
+      node_num <- current_vector[j]
+      node <- tree$nodes[[node_num]]
+      left_child <- tree$nodes[[node$parent]]$left_child
+      right_child <- tree$nodes[[node$parent]]$right_child
+      
+      if (left_child == node_num) {
+        child_vector <- c(child_vector, TRUE)
+      } else if (right_child == node_num) {
+        child_vector <- c(child_vector, FALSE)
+      } else {
+        child_vector <- c(child_vector, NA)
+      }
+    }
+    child_list[[i]] <- child_vector
+  }
+  return(child_list)
+}
+
+
+get_rule_list <- function (tree) {
+  tree <- loop_rules(tree)
+  lineage <- get_lineage(tree)
+  which_children <- which_child(tree)
+  
+  lineage_split_vars <- lineage %>%
+    map(function (i) {
+      map_dbl(i, function (j) {
+        value <- tree$nodes[[j]]$split_variable
+        if (is.null(value)) return(NA)
+        value
+      })
+    })
+  
+  lineage_split_values <- lineage %>%
+    map(function (i) {
+      map_dbl(i, function (j) {
+        value <- tree$nodes[[j]]$split_value
+        if (is.null(value)) return(NA)
+        value
+      })
+    })
+  
+  # TODO: Incorporate direction in here.
+  
+  rules_df_list <- list()
+  for (i in 1:length(lineage)) {
+    rules_df_list[[i]] <- data.frame(parents = lineage[[i]],
+               variable = lineage_split_vars[[i]],
+               values = lineage_split_values[[i]],
+               result = c(NA, which_children[[i]])
+               ) %>%
+      mutate(variable_name = tree$columns[variable])
+  }
+  # rules_df_list <- pmap(lineage_split_vars, lineage_split_values, lineage, ~data.frame(variables = ..1, values = ..2, parent = ..3) #%>%
+  #                         # filter(!is.na(variables)) %>%
+  #                         # mutate(plain_text = paste0(tree$columns[variables], " <= ", format(round(.$values, 2), nsmall = 2)))
+  #                         )
+  
+  names(rules_df_list) <- paste0("node_", tree$leaves)
+  rules_df_list
 }
 
 

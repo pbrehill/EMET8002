@@ -63,6 +63,9 @@ Next we'll use the Baum heuristic to extract a representative tree.
 ```{r}
 baum_trees <- map(forest_outputs, ~baum_step_3(.x, data))
 wager_trees <- map(forest_outputs, find_best_tree)
+
+names(baum_trees) <- names(Y)
+names(wager_trees) <- names(Y)
 ```
 
 
