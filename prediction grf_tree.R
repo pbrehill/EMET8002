@@ -2,10 +2,10 @@ library(tidyverse)
 library(grf)
 library(progress)
 library(microbenchmark)
-# data <- read_csv('titanic.csv')
+data <- read_csv('titanic.csv')
 # load("~/R-projects/EMET8002/broockman_kalla_replication_data.RData")
 
-data <- read_dta('macoursetal_main.dta')
+# data <- read_dta('macoursetal_main.dta')
 
 # trans <- x %>%
 #   select(treatment,
@@ -24,9 +24,9 @@ data <- read_dta('macoursetal_main.dta')
 
 Rcpp::sourceCpp('forest_cpp.cpp')
 
-data <- data %>% 
-  mutate(Sex1 = recode(Sex, 
-                       "male" = 0, 
+data <- data %>%
+  mutate(Sex1 = recode(Sex,
+                       "male" = 0,
                        "female" = 1))
 
 # Split data

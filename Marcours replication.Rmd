@@ -11,6 +11,7 @@ library(grf)
 library(haven)
 source('best_tree.R')
 source('baum_heuristic.R')
+source('prediction grf_tree.R')
 
 data <- read_dta('macoursetal_main.dta')
 ```
@@ -18,9 +19,45 @@ data <- read_dta('macoursetal_main.dta')
 Variables have already been transformed which is excellent.
 
 ```{r}
+data <- data %>%
+  mutate(s1hhsz_undr5_05_perc = s1hhsz_undr5_05 / s1hhsize_05,
+    s1hhsz_5_14_05_perc = s1hhsz_5_14_05 / s1hhsize_05,
+    s1hhsz_15_24_05_perc = s1hhsz_15_24_05 / s1hhsize_05,
+    s1hhsz_25_64_05_perc = s1hhsz_25_64_05 / s1hhsize_05,
+    s1hhsz_65plus_05_perc = s1hhsz_65plus_05 / s1hhsize_05,
+)
+```
 
 
-X <- data[c('male', 's1age_head_05', 's1hhsize_05', 's1hhsz_undr5_05', 's1hhsz_5_14_05', 's1hhsz_15_24_05', 's1hhsz_25_64_05', 's1hhsz_65plus_05', 's1male_head_05', 'ed_mom_inter', 'ed_mom_miss', 'bweight_miss', 'bweight_inter', 'tvip_05_miss', 'tvip_05_inter', 'height_05_miss', 'height_05_inter', 'weight_05_miss', 'weight_05_inter', 'com_haz_05', 'com_waz_05', 'com_tvip_05', 'com_control_05', 'com_vit_05', 'com_deworm_05', 'com_notvip')]
+```{r}
+
+
+# X <- data[c('male', 's1age_head_05', 's1hhsize_05', 's1hhsz_undr5_05', 's1male_head_05', 'ed_mom_inter', 'bweight', 'tvip_05')]
+
+X.unselect <- data[c(
+  'male',
+  'age_months_08',
+  's1age_head_05',
+  's1male_head_05',
+  's1hhsize_05',
+  'ed_mom',
+  's1hhsz_undr5_05_perc',
+  's1hhsz_5_14_05_perc',
+  's1hhsz_15_24_05_perc',
+  's1hhsz_25_64_05_perc',
+  's1hhsz_65plus_05_perc',
+  'bweight',
+  'height_05',
+  'weight_05',
+  'tvip_05',
+  'weighted_05',
+  's4p7_parasite_i_05',
+  's4p6_vitamina_i_05',
+  'com_haz_05',
+  'com_waz_05',
+  'com_tvip_05',
+  'com_control_05'
+)]
 
 Y <- data %>%
   select(contains('z_') & contains('_06') & -contains('_06m'))
@@ -29,12 +66,26 @@ W <- data$T
 
 selectorXW <- complete.cases(X) & complete.cases(W)
 
-X <- X[selectorXW,]
+X <- X.unselect[selectorXW,]
 Y <- Y[selectorXW,]
 W <- W[selectorXW]
 ```
 
 We're going to remove incomplete cases for X (only 46 of them) and W (also 46 cases). However for Y where only 2% is complete, we will just omit cases where we don't have the outcome. First let's check where the missing data is though.
+
+```{r}
+X %>%
+  map_dbl(~sum(is.na(.x))/length(.x))
+```
+
+```{r}
+X <- X %>%
+  map_df(function(x){
+    x[is.na(x)] <- mean(x, na.rm = TRUE)
+    x
+  })
+```
+
 
 ```{r}
 map_dbl(Y, ~sum(is.na(.x)))
@@ -44,6 +95,9 @@ There is missing data in a lot of variables.
 
 
 ```{r}
+seed = 12345
+set.seed(seed)
+
 forest_outputs <- Y %>%
   map(function (y) {
     selector <- !is.na(y)
@@ -51,21 +105,165 @@ forest_outputs <- Y %>%
     .X <- X[selector,]
     .W <- W[selector]
     
-    causal_forest(X = .X,
+    y.hat = regression_forest(X=.X, Y=.y, seed=seed)$predictions
+    
+    W.hat = regression_forest(X=.X, Y=.W, seed=seed)$predictions
+    
+    X_treat <- .X %>%
+      select(age_months_08,
+        male,
+        s1hhsz_undr5_05_perc,
+        height_05,
+        s4p7_parasite_i_05,
+        ed_mom
+)
+    
+    causal_forest(X = X_treat,
                  Y = .y,
-                 W = .W
+                 W = .W,
+                 Y.hat=y.hat,
+	               W.hat=W.hat,
+                 seed = seed
                      )}
       )
 ```
 
 Next we'll use the Baum heuristic to extract a representative tree.
 
+Test tuning parameter
+
+```{r}
+# best_tree_tuning0 <- find_best_tree(forest_outputs$z_all_06, "causal", 0)
+# 
+# best_tree_tuning0.5 <- find_best_tree(forest_outputs$z_all_06, "causal", 0.5)
+# 
+# best_tree_tuning1 <- find_best_tree(forest_outputs$z_all_06, "causal", 1)
+# 
+# best_tree_tuning10 <- find_best_tree(forest_outputs$z_all_06, "causal", 10)
+```
+
+```{r}
+
+# best_tree_est <- function (tree, cost) {
+#   x <- find_best_tree(tree, "causal", cost)
+#   
+#   unfiltered_samples <- estimate_params(forest_outputs$z_all_06$X.orig,
+#                 forest_outputs$z_all_06$Y.orig, 
+#                 forest_outputs$z_all_06 %>% get_tree(x$best_tree),
+#                 x$best_prune_info) %>%
+#   map(~.x$samples)
+#   
+#   
+#   valid_samples <- list()
+# 
+# i <- 1
+# j <- 1
+# 
+# while (i <= length(samples)) {
+#   if (!is.null(unfiltered_samples[[i]])) {
+#     valid_samples[[j]] <- unfiltered_samples[[i]]
+#     j <- j + 1
+#   }
+#   i <- i + 1
+# }
+# 
+# valid_samples
+# }
+```
+
+```{r}
+# output_test0 <- best_tree_est(forest_outputs$z_all_06, 0)
+# 
+# output_test0.2 <- best_tree_est(forest_outputs$z_all_06, 0.2)
+```
+
+
 ```{r}
 baum_trees <- map(forest_outputs, ~baum_step_3(.x, data))
-wager_trees <- map(forest_outputs, find_best_tree)
+wager_trees <- map(forest_outputs, ~find_best_tree(.x))
 
 names(baum_trees) <- names(Y)
 names(wager_trees) <- names(Y)
+```
+
+
+And show the parametres for the best tree on OOB
+
+```{r}
+Y.oob <- forest_outputs$z_all_06$Y.orig
+X.oob <- forest_outputs$z_all_06$X.orig
+
+best_tree_info <- wager_trees$z_all_06
+best_tree_params <- estimate_params(X.oob, Y.oob, get_tree(forest_outputs$z_all_06,wager_trees$z_all_06$best_tree), wager_trees$z_all_06$best_prune_info)
+```
+
+Construct data frame with rules
+
+```{r}
+best_rules <- get_rule_list(get_tree(forest_outputs$z_all_06, best_tree_info$best_tree))
+
+# Keep only the first row for each duplicate of z$id; this row will have the
+# largest value for z$var
+best_rules %>%
+  map(function (x) {simplified_rules <- x[order(x$parents,  decreasing=TRUE),]
+simplified_rules <- simplified_rules[!duplicated(simplified_rules$variable),]
+
+simplified_rules
+})
+  
+```
+
+```{r}
+get_tree(forest_outputs$z_all_06, best_tree_info$best_tree) %>% plot()
+```
+
+```{r}
+best_parameters <- estimate_params(forest_outputs$z_all_06$X.orig,
+                forest_outputs$z_all_06$Y.orig, 
+                forest_outputs$z_all_06 %>% get_tree(wager_trees$z_all_06$best_tree),
+                wager_trees$z_all_06$best_prune_info)
+```
+
+```{r}
+samples <- best_parameters %>%
+  map(~.x$samples)
+
+valid_samples <- list()
+
+i <- 1
+j <- 1
+
+while (i <= length(samples)) {
+  if (!is.null(samples[[i]])) {
+    valid_samples[[j]] <- samples[[i]]
+    j <- j + 1
+  }
+  i <- i + 1
+}
+
+data_used <- cbind(forest_outputs$z_all_06$X.orig,
+                   forest_outputs$z_all_06$W.orig,
+                   forest_outputs$z_all_06$Y.orig)
+
+t.tests_leaves <- valid_samples %>%
+  map(function (x) {
+    leaf_data <- data_used[x,]
+    
+    leaf_treated <- filter(leaf_data, leaf_data$`forest_outputs$z_all_06$W.orig` == 1)
+    
+    leaf_control <- filter(leaf_data, leaf_data$`forest_outputs$z_all_06$W.orig` == 0)
+    
+    t.test(leaf_treated$`forest_outputs$z_all_06$Y.orig`,
+           leaf_control$`forest_outputs$z_all_06$Y.orig`)
+  })
+
+leaf_results <- data.frame(difference = map_dbl(t.tests_leaves, ~.x$estimate %>% diff()),
+           p.value = map_dbl(t.tests_leaves,~.x$p.value),
+           stderr = map_dbl(t.tests_leaves,~.x$stderr)
+)
+
+write.csv(leaf_results, 'leaf_results.csv')
+  
 ```
 
 

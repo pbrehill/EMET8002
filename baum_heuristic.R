@@ -9,7 +9,9 @@ baum_step_1 <- function(forest) {
   trees <- map(1:forest$`_num_trees`, ~get_tree(forest, .x))
   
   # Iterate through, filter for those with correct highest node
-  trees_filtered <- map_lgl(trees, ~.x$nodes[[1]]$split_variable == most_important_variable)
+  trees_filtered <- map(trees, ~.x$nodes[[1]]$split_variable) %>%
+    unlist()
+  trees_filtered <- trees_filtered == most_important_variable
   return(trees_filtered)
 }
 
@@ -38,3 +40,4 @@ baum_step_3 <- function(forest, data) {
   critical_tree <- get_tree(forest, baum_step_2(forest, data))
   plot(critical_tree)
 }
+# baum_trees <- map(forest_outputs, ~baum_step_3(.x, data))
