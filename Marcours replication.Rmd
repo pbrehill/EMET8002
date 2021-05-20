@@ -60,11 +60,11 @@ X.unselect <- data[c(
 )]
 
 Y <- data %>%
-  select(contains('z_') & contains('_06') & -contains('_06m'))
+  select(contains('z_') & contains('_08') & -contains('_08m'))
 
 W <- data$T
 
-selectorXW <- complete.cases(X) & complete.cases(W)
+selectorXW <- complete.cases(W)
 
 X <- X.unselect[selectorXW,]
 Y <- Y[selectorXW,]
@@ -123,7 +123,8 @@ forest_outputs <- Y %>%
                  W = .W,
                  Y.hat=y.hat,
 	               W.hat=W.hat,
-                 seed = seed
+                 seed = seed,
+                 min.node.size = 15
                      )}
       )
 ```
@@ -180,7 +181,7 @@ Test tuning parameter
 
 ```{r}
 baum_trees <- map(forest_outputs, ~baum_step_3(.x, data))
-wager_trees <- map(forest_outputs, ~find_best_tree(.x))
+wager_trees <- map(forest_outputs, ~find_best_tree(.x, "causal"))
 
 names(baum_trees) <- names(Y)
 names(wager_trees) <- names(Y)
@@ -190,17 +191,17 @@ names(wager_trees) <- names(Y)
 And show the parametres for the best tree on OOB
 
 ```{r}
-Y.oob <- forest_outputs$z_all_06$Y.orig
-X.oob <- forest_outputs$z_all_06$X.orig
+Y.oob <- forest_outputs$z_all_08$Y.orig
+X.oob <- forest_outputs$z_all_08$X.orig
 
-best_tree_info <- wager_trees$z_all_06
-best_tree_params <- estimate_params(X.oob, Y.oob, get_tree(forest_outputs$z_all_06,wager_trees$z_all_06$best_tree), wager_trees$z_all_06$best_prune_info)
+best_tree_info <- wager_trees$z_all_08
+best_tree_params <- estimate_params(X.oob, Y.oob, get_tree(forest_outputs$z_all_08,wager_trees$z_all_08$best_tree), wager_trees$z_all_08$best_prune_info)
 ```
 
 Construct data frame with rules
 
 ```{r}
-best_rules <- get_rule_list(get_tree(forest_outputs$z_all_06, best_tree_info$best_tree))
+best_rules <- get_rule_list(get_tree(forest_outputs$z_all_08, best_tree_info$best_tree))
 
 # Keep only the first row for each duplicate of z$id; this row will have the
 # largest value for z$var
@@ -214,47 +215,69 @@ simplified_rules
 ```
 
 ```{r}
-get_tree(forest_outputs$z_all_06, best_tree_info$best_tree) %>% plot()
+get_tree(forest_outputs$z_all_08, best_tree_info$best_tree) %>% plot()
 ```
 
 ```{r}
-best_parameters <- estimate_params(forest_outputs$z_all_06$X.orig,
-                forest_outputs$z_all_06$Y.orig, 
-                forest_outputs$z_all_06 %>% get_tree(wager_trees$z_all_06$best_tree),
-                wager_trees$z_all_06$best_prune_info)
+best_parameters <- estimate_params(forest_outputs$z_all_08$X.orig,
+                forest_outputs$z_all_08$Y.orig, 
+                forest_outputs$z_all_08 %>% get_tree(wager_trees$z_all_08$best_tree),
+                wager_trees$z_all_08$best_prune_info)
 ```
 
 ```{r}
 samples <- best_parameters %>%
   map(~.x$samples)
 
-valid_samples <- list()
+filter_valid_leaves <- function (samples1) {
+  filtered_samples <- list()
 
-i <- 1
-j <- 1
-
-while (i <= length(samples)) {
-  if (!is.null(samples[[i]])) {
-    valid_samples[[j]] <- samples[[i]]
-    j <- j + 1
+  i <- 1
+  j <- 1
+  
+  while (i <= length(samples1)) {
+    if (!is.null(samples1[[i]])) {
+      filtered_samples[[j]] <- samples1[[i]]
+      j <- j + 1
+    }
+    i <- i + 1
   }
-  i <- i + 1
+  filtered_samples
 }
 
-data_used <- cbind(forest_outputs$z_all_06$X.orig,
-                   forest_outputs$z_all_06$W.orig,
-                   forest_outputs$z_all_06$Y.orig)
+filter_valid_nodes <- function (samples1) {
+  filtered_samples <- list()
+
+  i <- 1
+  j <- 1
+  
+  while (i <= length(samples1)) {
+    if (!is.null(samples1[[i]])) {
+      filtered_samples[[j]] <- samples1[[i]]
+      j <- j + 1
+    }
+    i <- i + 1
+  }
+  filtered_samples
+}
+
+valid_samples <- filter_valid_leaves(samples)
+
+
+data_used <- cbind(forest_outputs$z_all_08$X.orig,
+                   forest_outputs$z_all_08$W.orig,
+                   forest_outputs$z_all_08$Y.orig)
 
 t.tests_leaves <- valid_samples %>%
   map(function (x) {
     leaf_data <- data_used[x,]
     
-    leaf_treated <- filter(leaf_data, leaf_data$`forest_outputs$z_all_06$W.orig` == 1)
+    leaf_treated <- filter(leaf_data, leaf_data$`forest_outputs$z_all_08$W.orig` == 1)
     
-    leaf_control <- filter(leaf_data, leaf_data$`forest_outputs$z_all_06$W.orig` == 0)
+    leaf_control <- filter(leaf_data, leaf_data$`forest_outputs$z_all_08$W.orig` == 0)
     
-    t.test(leaf_treated$`forest_outputs$z_all_06$Y.orig`,
-           leaf_control$`forest_outputs$z_all_06$Y.orig`)
+    t.test(leaf_treated$`forest_outputs$z_all_08$Y.orig`,
+           leaf_control$`forest_outputs$z_all_08$Y.orig`)
   })
 
 leaf_results <- data.frame(difference = map_dbl(t.tests_leaves, ~.x$estimate %>% diff()),
@@ -265,5 +288,58 @@ leaf_results <- data.frame(difference = map_dbl(t.tests_leaves, ~.x$estimate %>%
 write.csv(leaf_results, 'leaf_results.csv')
   
 ```
+
+
+```{r}
+finished_samples <- baum_trees$z_all_08$nodes %>% 
+  map(~.x$samples) %>%
+  filter_valid_leaves()
+
+finished_samples %>%
+  map(~data$T[.x] %>% table())
+```
+```{r}
+results <- finished_samples %>%
+  map(function (x) {
+    leaf_data <- data[x,]
+    
+    leaf_stats <- leaf_data %>%
+        group_by(T) %>%
+        summarise(count = n(),
+                  mean_Y = mean(z_all_08, na.rm = TRUE)
+      )
+    
+    leafw1 <- leaf_data %>% filter(T == 1)
+    leafw0 <- leaf_data %>% filter(T == 0)
+    
+    test <- t.test(leafw1$z_all_08, leafw0$z_all_08)
+    
+    list(leaf_stats = leaf_stats, test = test$p.value)
+  })
+```
+
+```{r}
+prune_to_size <- function(tree, data, min.group.size = 30) {
+  
+  check_length <- function(x) {
+    tree$nodes %>%
+    map(~.x$samples) %>%
+    filter_valid_leaves() %>%
+    map_lgl(~length(.x) > 29)
+  }
+  
+  all_right_size <- tree$nodes %>%
+    map(~.x$samples) %>%
+    filter_valid_leaves() %>%
+    map_lgl(~length(.x) > 29)
+  
+  while (!all_right_size) {
+    tree <- loop_rules(tree)
+    
+    
+  }
+} 
+```
+
 
 

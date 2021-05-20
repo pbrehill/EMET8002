@@ -548,6 +548,49 @@ test_forest <- causal_forest(data_train %>% select(-Survived, -Sex1),
 test_tree <- get_tree(test_forest, 1)
 
 
+prune_causal_tree <- function (tree, node, data) {
+  if (!tree$nodes[[node]]$is_leaf) {
+    print("Node is not a leaf, returning NA")
+    return (NA)
+  }
+  
+  samples <- tree$nodes %>%
+    map(~.x$samples)
+  
+  # Set new sample for parent
+  parent <- tree$nodes[[node]]$parent
+  left <- tree$nodes[[parent]]$left_child
+  right <- tree$nodes[[parent]]$right_child
+  
+  tree$nodes[[parent]]$samples <- c(
+    tree$nodes[[left]]$samples,
+    tree$nodes[[right]]$samples
+  )
+  
+  # Calculate new leaf stats
+  tree$nodes[[parent]]$leaf_Stats <- c(
+    data[tree$nodes[[parent]]$samples,] %>%
+      summarise(avg_Y = mean(z_all_08, na.rm = TRUE), avg_W = mean(`T`, na.rm = TRUE)) %>%
+      unlist()
+  )
+  
+  tree$nodes[[parent]]$big_enough <- (tree$nodes[[parent]]$leaf_stats['avg_W'] * length(tree$nodes[[parent]]$sample) > 29) & ((1 - tree$nodes[[parent]]$leaf_stats['avg_W']) * length(tree$nodes[[parent]]$sample) > 29)
+  
+  # Set leaf to true
+  tree$nodes[[parent]]$is_leaf <- TRUE
+  
+  # Null old children
+  tree$nodes[[left]]$samples <- NULL
+  tree$nodes[[right]]$samples <- NULL
+  
+  tree$nodes[[left]]$is_leaf <- FALSE
+  tree$nodes[[right]]$is_leaf <- FALSE
+  
+  # Return tree
+  tree
+}
+
+
 # Get Y* for an observation
 
 # set.seed(1993)

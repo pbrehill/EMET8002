@@ -37,7 +37,6 @@ baum_step_2 <- function(forest, data) {
 }
 
 baum_step_3 <- function(forest, data) {
-  critical_tree <- get_tree(forest, baum_step_2(forest, data))
-  plot(critical_tree)
+  get_tree(forest, baum_step_2(forest, data))
 }
 # baum_trees <- map(forest_outputs, ~baum_step_3(.x, data))
