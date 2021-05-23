@@ -2,38 +2,38 @@ library(tidyverse)
 library(grf)
 library(progress)
 library(microbenchmark)
-data <- read_csv('titanic.csv')
+# data <- read_csv('titanic.csv')
 # load("~/R-projects/EMET8002/broockman_kalla_replication_data.RData")
-
+# 
 # data <- read_dta('macoursetal_main.dta')
-
-# trans <- x %>%
-#   select(treatment,
-#          trans_therm_post,
-#          trans_therm_pre,
-#          age,
-#          party,
-#          race,
-#          voted14,
-#          voted12,
-#          voted10,
-#          sdocanvass_minutes) %>%
-#   Sex1 = recode(Sex, 
-#                 "male" = 0, 
-#                 "female" = 1)
-
-Rcpp::sourceCpp('forest_cpp.cpp')
-
-data <- data %>%
-  mutate(Sex1 = recode(Sex,
-                       "male" = 0,
-                       "female" = 1))
-
-# Split data
-train_ind <- sample(seq_len(nrow(data)), size = floor(0.75 * nrow(data)))
-
-data_train <- data[train_ind,] %>% select_if(is.numeric)
-data_test <- data[-train_ind,] %>% select_if(is.numeric)
+# 
+# # trans <- x %>%
+# #   select(treatment,
+# #          trans_therm_post,
+# #          trans_therm_pre,
+# #          age,
+# #          party,
+# #          race,
+# #          voted14,
+# #          voted12,
+# #          voted10,
+# #          sdocanvass_minutes) %>%
+# #   Sex1 = recode(Sex, 
+# #                 "male" = 0, 
+# #                 "female" = 1)
+# 
+# Rcpp::sourceCpp('forest_cpp.cpp')
+# 
+# data <- data %>%
+#   mutate(Sex1 = recode(Sex,
+#                        "male" = 0,
+#                        "female" = 1))
+# 
+# # Split data
+# train_ind <- sample(seq_len(nrow(data)), size = floor(0.75 * nrow(data)))
+# 
+# data_train <- data[train_ind,] %>% select_if(is.numeric)
+# data_test <- data[-train_ind,] %>% select_if(is.numeric)
 
 
 get_p <-  function (cf, data = NULL) {
@@ -219,6 +219,31 @@ predict_casual_tree <- function (fit, data1) {
     apply(1, evaluate_node, fit = fit) %>%
     t() %>%
     setNames(c('node_num', 'avg_Y', 'avg_W'))
+}
+
+get_leaves_contained <- function (fit) {
+  for (i in length(fit$nodes):1) {
+    if (!fit$nodes[[i]]$is_leaf) {
+      # Add child leaves
+      if (fit$nodes[[fit$nodes[[i]]$left_child]]$is_leaf) {
+        responsible_leaves_left <- fit$nodes[[i]]$left_child
+      } else {
+        responsible_leaves_left <- fit$nodes[[fit$nodes[[i]]$left_child]]$descendents
+      }
+      
+      if (fit$nodes[[fit$nodes[[i]]$right_child]]$is_leaf) {
+        responsible_leaves_right <- fit$nodes[[i]]$right_child
+      } else {
+        responsible_leaves_right <- fit$nodes[[fit$nodes[[i]]$right_child]]$descendents
+      }
+      
+      # Add kids to attribute
+      fit$nodes[[i]]$descendents <- c(responsible_leaves_left,
+                                      responsible_leaves_right)
+    }
+  }
+  
+  fit
 }
 
 predict_causal_trees <- function(fit, data1) {
@@ -540,13 +565,12 @@ get_rule_list <- function (tree) {
 }
 
 
-test_forest <- causal_forest(data_train %>% select(-Survived, -Sex1),
-                                           data_train$Survived,
-                                           data_train$Sex1,
-                                           num.trees = 1000)
-
-test_tree <- get_tree(test_forest, 1)
-
+# test_forest <- causal_forest(data_train %>% select(-Survived, -Sex1),
+#                                            data_train$Survived,
+#                                            data_train$Sex1,
+#                                            num.trees = 1000)
+# 
+# test_tree <- get_tree(test_forest, 1)
 
 prune_causal_tree <- function (tree, node, data) {
   if (!tree$nodes[[node]]$is_leaf) {
@@ -559,36 +583,59 @@ prune_causal_tree <- function (tree, node, data) {
   
   # Set new sample for parent
   parent <- tree$nodes[[node]]$parent
-  left <- tree$nodes[[parent]]$left_child
-  right <- tree$nodes[[parent]]$right_child
+  # left <- tree$nodes[[parent]]$left_child
+  # right <- tree$nodes[[parent]]$right_child
   
-  tree$nodes[[parent]]$samples <- c(
-    tree$nodes[[left]]$samples,
-    tree$nodes[[right]]$samples
-  )
+  tree$nodes[[parent]]$samples <- tree$nodes[[parent]]$descendents %>%
+    map(~tree$nodes[[.x]]$samples) %>%
+    unlist()
   
   # Calculate new leaf stats
-  tree$nodes[[parent]]$leaf_Stats <- c(
+  tree$nodes[[parent]]$leaf_stats <- c(
     data[tree$nodes[[parent]]$samples,] %>%
-      summarise(avg_Y = mean(z_all_08, na.rm = TRUE), avg_W = mean(`T`, na.rm = TRUE)) %>%
+      summarise(avg_Y = mean(z_all_08, na.rm = TRUE),
+                avg_W = mean(`T`, na.rm = TRUE)) %>%
       unlist()
   )
-  
+  print(tree$nodes[[parent]]$leaf_stats['avg_W'])
   tree$nodes[[parent]]$big_enough <- (tree$nodes[[parent]]$leaf_stats['avg_W'] * length(tree$nodes[[parent]]$sample) > 29) & ((1 - tree$nodes[[parent]]$leaf_stats['avg_W']) * length(tree$nodes[[parent]]$sample) > 29)
   
   # Set leaf to true
   tree$nodes[[parent]]$is_leaf <- TRUE
   
   # Null old children
-  tree$nodes[[left]]$samples <- NULL
-  tree$nodes[[right]]$samples <- NULL
-  
-  tree$nodes[[left]]$is_leaf <- FALSE
-  tree$nodes[[right]]$is_leaf <- FALSE
+  descendents <- tree$nodes[[parent]]$descendents
+  for (i in 1:length(descendents)) {
+    tree$nodes[[descendents[i]]]$samples <- NULL
+    tree$nodes[[descendents[i]]]$is_leaf<- FALSE
+  }
   
   # Return tree
   tree
 }
+
+
+prune_whole_tree <- function (tree, data, min.size) {
+  total_nodes <- length(tree$nodes)
+  tree <- loop_rules(tree) %>%
+    get_leaves_contained()
+  
+  for (i in total_nodes:1) {
+    # Check if node has enough T and C
+    if (tree$nodes[[i]]$is_leaf) {
+      W_stats <- tree$nodes[[i]]$leaf_stats['avg_W']
+      leaf_sample <- tree$nodes[[i]]$samples
+      if (tree$nodes[[i]]$big_enough) {
+        tree <- prune_causal_tree(tree, i, data)
+      }
+    }
+  }
+  
+  return(tree)
+}
+
+best_tree <- prune_whole_tree(good_tree, data, 30)
+
 
 
 # Get Y* for an observation
@@ -657,25 +704,25 @@ prune_causal_tree <- function (tree, node, data) {
 # get_rules(test_tree)
 
 
-# output_test <- loop_rules(test_tree)
-
-trees <- map(1:test_forest$`_num_trees`, ~get_tree(test_forest, .x))
-
-trees_w_parents <- list()
-rules_list <- list()
-
-pb <- progress_bar$new(
-  format = " calculating [:bar] :percent time elapsed: :elapsedfull",
-  total = test_forest$`_num_trees`, clear = FALSE, width= 60)
-
-for (i in 1:test_forest$`_num_trees`) {
-  trees_w_parents[[i]] <- loop_rules(trees[[i]])
-  rules_list[[i]] <- get_rules_from_leaves(trees_w_parents[[i]])
-  pb$tick()
-}
-
-
-rules_df <- rules_list %>% map(~bind_rows(.x, .id = "leaf")) %>% bind_rows(.id = "tree")
-# get_rules_from_leaves(trees_w_parents[[2]])
-
-# loop_rules(test_tree)
+# # output_test <- loop_rules(test_tree)
+# 
+# trees <- map(1:test_forest$`_num_trees`, ~get_tree(test_forest, .x))
+# 
+# trees_w_parents <- list()
+# rules_list <- list()
+# 
+# pb <- progress_bar$new(
+#   format = " calculating [:bar] :percent time elapsed: :elapsedfull",
+#   total = test_forest$`_num_trees`, clear = FALSE, width= 60)
+# 
+# for (i in 1:test_forest$`_num_trees`) {
+#   trees_w_parents[[i]] <- loop_rules(trees[[i]])
+#   rules_list[[i]] <- get_rules_from_leaves(trees_w_parents[[i]])
+#   pb$tick()
+# }
+# 
+# 
+# rules_df <- rules_list %>% map(~bind_rows(.x, .id = "leaf")) %>% bind_rows(.id = "tree")
+# # get_rules_from_leaves(trees_w_parents[[2]])
+# 
+# # loop_rules(test_tree)

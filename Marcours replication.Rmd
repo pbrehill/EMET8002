@@ -14,6 +14,9 @@ source('baum_heuristic.R')
 source('prediction grf_tree.R')
 
 data <- read_dta('macoursetal_main.dta')
+
+# data <- data %>%
+#   filter(TREAT1 == 1 | TREAT2 == 1)
 ```
 
 Variables have already been transformed which is excellent.
@@ -60,7 +63,7 @@ X.unselect <- data[c(
 )]
 
 Y <- data %>%
-  select(contains('z_') & contains('_08') & -contains('_08m'))
+  select(z_all_08)
 
 W <- data$T
 
@@ -94,20 +97,22 @@ map_dbl(Y, ~sum(is.na(.x)))
 There is missing data in a lot of variables.
 
 
+
 ```{r}
-seed = 12345
+seed = 891 #82199
 set.seed(seed)
 
-forest_outputs <- Y %>%
-  map(function (y) {
-    selector <- !is.na(y)
+y <- Y$z_all_08
+
+selector <- !is.na(y) #& y < 4 & y > -4
     .y <- y[selector]
     .X <- X[selector,]
     .W <- W[selector]
     
     y.hat = regression_forest(X=.X, Y=.y, seed=seed)$predictions
+    # print(paste0('For ', y_names,' CATE is: ', mean(y.hat)))
     
-    W.hat = regression_forest(X=.X, Y=.W, seed=seed)$predictions
+    W.hat = regression_forest(X=.X %>% select(-starts_with('com')), Y=.W, seed=seed)$predictions
     
     X_treat <- .X %>%
       select(age_months_08,
@@ -117,16 +122,32 @@ forest_outputs <- Y %>%
         s4p7_parasite_i_05,
         ed_mom
 )
+    reg_data <- cbind(.y, X_treat, .W)
+    linear_model <- lm(data = reg_data, .y ~ .)
     
-    causal_forest(X = X_treat,
+    # linear_model_treat <- lm(data = reg_data %>% filter(T == 1), .y ~ .)
+    # linear_model_control <- lm(data = reg_data %>% filter(T == 0), .y ~ .)
+    
+    forest_outputs <- list(z_all_08 = causal_forest(X = X_treat,
                  Y = .y,
                  W = .W,
                  Y.hat=y.hat,
 	               W.hat=W.hat,
                  seed = seed,
-                 min.node.size = 15
-                     )}
-      )
+                 sample.fraction = 0.8,
+                 ci.group.size = 1))
+                 
+    cf05 <- causal_forest(X = X_treat,
+                 Y = .y,
+                 W = .W,
+	               W.hat=W.hat,
+                 seed = seed,
+                 sample.fraction = 0.5,
+                 ci.group.size = 1
+                 
+    )
+    # return(regression_forest(X=.X, Y=.y, seed=seed))
+
 ```
 
 Next we'll use the Baum heuristic to extract a representative tree.
@@ -226,7 +247,15 @@ best_parameters <- estimate_params(forest_outputs$z_all_08$X.orig,
 ```
 
 ```{r}
-samples <- best_parameters %>%
+pruned_baum <- baum_trees$z_all_08 %>%
+  # forest_outputs$z_all_08 %>%
+  # get_tree(wager_trees$z_all_08$best_tree) %>%
+  prune_whole_tree(data, 30)
+
+pruned_baum %>% plot()
+
+samples <- pruned_baum %>%
+  .$nodes %>%
   map(~.x$samples)
 
 filter_valid_leaves <- function (samples1) {
@@ -276,70 +305,128 @@ t.tests_leaves <- valid_samples %>%
     
     leaf_control <- filter(leaf_data, leaf_data$`forest_outputs$z_all_08$W.orig` == 0)
     
-    t.test(leaf_treated$`forest_outputs$z_all_08$Y.orig`,
-           leaf_control$`forest_outputs$z_all_08$Y.orig`)
+    t.test(leaf_control$`forest_outputs$z_all_08$Y.orig`,
+           leaf_treated$`forest_outputs$z_all_08$Y.orig`)
   })
 
 leaf_results <- data.frame(difference = map_dbl(t.tests_leaves, ~.x$estimate %>% diff()),
            p.value = map_dbl(t.tests_leaves,~.x$p.value),
-           stderr = map_dbl(t.tests_leaves,~.x$stderr)
+           stderr = map_dbl(t.tests_leaves,~.x$stderr),
+           n = map_dbl(valid_samples, length)
 )
 
-write.csv(leaf_results, 'leaf_results.csv')
+# write.csv(leaf_results, 'leaf_results.csv')
   
 ```
 
 
-```{r}
-finished_samples <- baum_trees$z_all_08$nodes %>% 
-  map(~.x$samples) %>%
-  filter_valid_leaves()
 
-finished_samples %>%
-  map(~data$T[.x] %>% table())
-```
 ```{r}
-results <- finished_samples %>%
-  map(function (x) {
-    leaf_data <- data[x,]
-    
-    leaf_stats <- leaf_data %>%
-        group_by(T) %>%
-        summarise(count = n(),
-                  mean_Y = mean(z_all_08, na.rm = TRUE)
-      )
-    
-    leafw1 <- leaf_data %>% filter(T == 1)
-    leafw0 <- leaf_data %>% filter(T == 0)
-    
-    test <- t.test(leafw1$z_all_08, leafw0$z_all_08)
-    
-    list(leaf_stats = leaf_stats, test = test$p.value)
-  })
+# results <- finished_samples %>%
+#   map(function (x) {
+#     leaf_data <- data[x,]
+#     
+#     leaf_stats <- leaf_data %>%
+#         group_by(T) %>%
+#         summarise(count = n(),
+#                   mean_Y = mean(z_all_08, na.rm = TRUE)
+#       )
+#     
+#     leafw1 <- leaf_data %>% filter(T == 1)
+#     leafw0 <- leaf_data %>% filter(T == 0)
+#     
+#     test <- t.test(leafw1$z_all_08, leafw0$z_all_08)
+#     
+#     list(leaf_stats = leaf_stats, test = test$p.value)
+#   })
 ```
 
 ```{r}
-prune_to_size <- function(tree, data, min.group.size = 30) {
-  
-  check_length <- function(x) {
-    tree$nodes %>%
-    map(~.x$samples) %>%
-    filter_valid_leaves() %>%
-    map_lgl(~length(.x) > 29)
+# # Hardcoded analysis
+# data_leaf_dist <- data[data %>%
+#     select(s4p7_parasite_i_05, 
+#            age_months_08, 
+#            s1hhsz_undr5_05_perc,
+#            T,
+#            z_all_08
+#     ) %>% complete.cases(),]
+# 
+# data_leaf_dist$leaf <- NA
+# data_leaf_dist$leaf[data_leaf_dist$s4p7_parasite_i_05 != 1] <- 1
+# 
+# data_leaf_dist$leaf[(data_leaf_dist$s4p7_parasite_i_05 == 1) & (data_leaf_dist$age_months_08 > 59)] <- 2
+# 
+# data_leaf_dist$leaf[(data_leaf_dist$s4p7_parasite_i_05 == 1) & (data_leaf_dist$age_months_08 <= 59) & (data_leaf_dist$s1hhsz_undr5_05_perc > 0.22)] <- 3
+# 
+# data_leaf_dist$leaf[(data_leaf_dist$s4p7_parasite_i_05 == 1) & (data_leaf_dist$age_months_08 <= 59) & (data_leaf_dist$s1hhsz_undr5_05_perc <= 0.22)] <- 4
+```
+
+```{r}
+# Map leaf distributions
+
+data_used$Y.orig <- data_used$`forest_outputs$z_all_08$Y.orig`
+
+data_used$W.orig <- data_used$`forest_outputs$z_all_08$W.orig`
+
+data_used$leaf <- NA
+
+for (i in 1:length(valid_samples)) {
+  for (j in 1:length(valid_samples[[i]])) {
+    data_used$leaf[valid_samples[[i]][j]] <- i
   }
-  
-  all_right_size <- tree$nodes %>%
-    map(~.x$samples) %>%
-    filter_valid_leaves() %>%
-    map_lgl(~length(.x) > 29)
-  
-  while (!all_right_size) {
-    tree <- loop_rules(tree)
-    
-    
-  }
-} 
+}
+
+data_used <- data_used[!is.na(data_used$leaf),]
+```
+
+```{r}
+shapiros <- data_used %>%
+  filter(Y.orig < 3.5, Y.orig > -3.5,
+         !is.na(leaf)) %>%
+  mutate(W.orig = ifelse(W.orig == 1, 'Treatment', 'Control')) %>%
+  group_by(leaf, W.orig) %>%
+  summarise(shapiro = shapiro.test(Y.orig)$p.value %>% 
+              round(3) %>%
+              format(digits=3, nsmall=3) %>%
+              paste0('p = ', .)
+              )
+
 ```
 
 
+```{r}
+data_used %>%
+  filter(Y.orig < 3.5, Y.orig > -3.5,
+         !is.na(leaf)) %>%
+  mutate(W.orig = ifelse(W.orig == 1, 'Treatment', 'Control')) %>%
+  ggplot(aes(x = Y.orig)) +
+    geom_density() +
+    facet_grid(rows = vars(leaf), cols = vars(W.orig)) +
+    geom_text(data = shapiros, aes(x = -1.3, y = 1, label = shapiro)) +
+    theme_minimal() +
+    labs(title = 'Distributions of z normalised index of development \nindicators by leaf and treatment intention', caption = 'Note: excludes observations outside of 3.5 standard deviations from the mean', x = 'z normalised index of development indicators')
+
+ggsave("normal.png", width = 5, height = 8)
+```
+
+```{r}
+W.hat %>% qplot()
+```
+
+```{r}
+forest_outputs$z_all_08 %>%
+  average_treatment_effect()
+```
+
+```{r}
+# forest_outputs$z_all_08 %>%
+#   average_treatment_effect(subset = data_used$leaf == 1)
+```
+
+
+```{r}
+data_used %>%
+  group_by(W.orig) %>%
+  summarise(mean(Y.orig))
+```
 
