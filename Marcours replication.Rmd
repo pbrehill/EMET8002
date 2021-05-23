@@ -99,7 +99,7 @@ There is missing data in a lot of variables.
 
 
 ```{r}
-seed = 8931 #82199
+seed = 70123 #82199
 set.seed(seed)
 
 y <- Y$z_all_08
@@ -386,10 +386,10 @@ shapiros <- data_used %>%
          !is.na(leaf)) %>%
   mutate(W.orig = ifelse(W.orig == 1, 'Treatment', 'Control')) %>%
   group_by(leaf, W.orig) %>%
-  summarise(shapiro = shapiro.test(Y.orig)$p.value #%>% 
-              # round(3) %>%
-              # format(digits=3, nsmall=3) %>%
-              # paste0('p = ', .)
+  summarise(shapiro = shapiro.test(Y.orig)$p.value %>% 
+              round(3) %>%
+              format(digits=3, nsmall=3) %>%
+              paste0('p = ', .)
               )
 
 ```
@@ -429,5 +429,32 @@ forest_outputs$z_all_08 %>%
 data_used %>%
   group_by(W.orig) %>%
   summarise(mean(Y.orig))
+```
+
+```{r}
+var_imp <- variable_importance(forest_outputs$z_all_08) %>%
+  as.data.frame.matrix()
+
+var_imp$varname <- colnames(forest_outputs$z_all_08$X.orig)
+
+var_imp <- var_imp %>%
+  arrange(desc(V1))
+
+var_imp$varlabel <- c('Age in months (08 wave)', "Mother's education", "Height for age", "Gender", "Percentage of household\nunder 5", "Dewormed in past 6 months")
+
+var_imp %>%
+  ggplot(aes(x = varlabel, y = V1, label = format(V1, digits = 2))) +
+  geom_col() + 
+  labs(x = 'Variable name', y = 'Variable importance', caption = 'Note: All variables from baseline survey except age') + 
+  geom_text(vjust = -1) +
+  theme_minimal() +
+  expand_limits(y = 0.5)
+
+ggsave('var_imp.png', width = 10, height = 5)
+```
+
+```{r}
+average_treatment_effect(forest_outputs$z_all_08, subset = (forest_outputs$z_all_08$age_months_08 <= 66 & forest_outputs$z_all_08$male <= 0 & forest_outputs$z_all_08$
+                                                              s1hhsz_undr5_05_perc > 0.18))
 ```
 
