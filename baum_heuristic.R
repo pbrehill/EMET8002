@@ -20,7 +20,7 @@ baum_step_2 <- function(forest, data) {
   which_trees <- selected_trees %>% which()
   predictions <- predict(forest)$predictions
   
-  trees <- map(1:forest$`_num_trees`, ~get_tree(forest, .x))
+  trees <- map(which_trees, ~get_tree(forest, .x))
   
   selected_tree_samples <- map(trees, function (x) {
       drawn <- x$drawn_samples

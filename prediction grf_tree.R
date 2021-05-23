@@ -240,6 +240,8 @@ get_leaves_contained <- function (fit) {
       # Add kids to attribute
       fit$nodes[[i]]$descendents <- c(responsible_leaves_left,
                                       responsible_leaves_right)
+    } else {
+      fit$nodes[[i]]$original_samples <- fit$nodes[[i]]$samples
     }
   }
   
@@ -583,11 +585,11 @@ prune_causal_tree <- function (tree, node, data) {
   
   # Set new sample for parent
   parent <- tree$nodes[[node]]$parent
-  # left <- tree$nodes[[parent]]$left_child
-  # right <- tree$nodes[[parent]]$right_child
+  left <- tree$nodes[[parent]]$left_child
+  right <- tree$nodes[[parent]]$right_child
   
   tree$nodes[[parent]]$samples <- tree$nodes[[parent]]$descendents %>%
-    map(~tree$nodes[[.x]]$samples) %>%
+    map(~tree$nodes[[.x]]$original_samples) %>%
     unlist()
   
   # Calculate new leaf stats
@@ -604,11 +606,12 @@ prune_causal_tree <- function (tree, node, data) {
   tree$nodes[[parent]]$is_leaf <- TRUE
   
   # Null old children
-  descendents <- tree$nodes[[parent]]$descendents
-  for (i in 1:length(descendents)) {
-    tree$nodes[[descendents[i]]]$samples <- NULL
-    tree$nodes[[descendents[i]]]$is_leaf<- FALSE
-  }
+  # descendents <- tree$nodes[[parent]]$descendents
+  tree$nodes[[left]]$samples <- NULL
+  tree$nodes[[right]]$samples <- NULL
+  
+  tree$nodes[[left]]$is_leaf <- FALSE
+  tree$nodes[[right]]$is_leaf <- FALSE
   
   # Return tree
   tree
@@ -625,7 +628,9 @@ prune_whole_tree <- function (tree, data, min.size) {
     if (tree$nodes[[i]]$is_leaf) {
       W_stats <- tree$nodes[[i]]$leaf_stats['avg_W']
       leaf_sample <- tree$nodes[[i]]$samples
-      if (tree$nodes[[i]]$big_enough) {
+      big_enough <- (((tree$nodes[[i]]$leaf_stats['avg_W'] * length(tree$nodes[[i]]$sample)) > 29)
+      & ((1 - tree$nodes[[i]]$leaf_stats['avg_W']) * length(tree$nodes[[i]]$sample) > 29))
+      if (!big_enough) {
         tree <- prune_causal_tree(tree, i, data)
       }
     }

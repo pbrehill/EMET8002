@@ -99,7 +99,7 @@ There is missing data in a lot of variables.
 
 
 ```{r}
-seed = 891 #82199
+seed = 8931 #82199
 set.seed(seed)
 
 y <- Y$z_all_08
@@ -135,7 +135,8 @@ selector <- !is.na(y) #& y < 4 & y > -4
 	               W.hat=W.hat,
                  seed = seed,
                  sample.fraction = 0.8,
-                 ci.group.size = 1))
+                 ci.group.size = 1,
+                 min.node.size = 60))
                  
     cf05 <- causal_forest(X = X_treat,
                  Y = .y,
@@ -315,7 +316,7 @@ leaf_results <- data.frame(difference = map_dbl(t.tests_leaves, ~.x$estimate %>%
            n = map_dbl(valid_samples, length)
 )
 
-# write.csv(leaf_results, 'leaf_results.csv')
+write.csv(leaf_results, 'leaf_results.csv')
   
 ```
 
@@ -385,10 +386,10 @@ shapiros <- data_used %>%
          !is.na(leaf)) %>%
   mutate(W.orig = ifelse(W.orig == 1, 'Treatment', 'Control')) %>%
   group_by(leaf, W.orig) %>%
-  summarise(shapiro = shapiro.test(Y.orig)$p.value %>% 
-              round(3) %>%
-              format(digits=3, nsmall=3) %>%
-              paste0('p = ', .)
+  summarise(shapiro = shapiro.test(Y.orig)$p.value #%>% 
+              # round(3) %>%
+              # format(digits=3, nsmall=3) %>%
+              # paste0('p = ', .)
               )
 
 ```
